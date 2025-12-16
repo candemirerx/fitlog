@@ -40,21 +40,34 @@ function App() {
 
   // Firebase Auth State Listener - Persists login across refreshes
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    let unsubscribeFromData: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       console.log('Auth state changed:', firebaseUser?.email || 'No user');
+
+      // Clean up previous data subscription
+      if (unsubscribeFromData) {
+        unsubscribeFromData();
+        unsubscribeFromData = null;
+      }
 
       if (firebaseUser && firebaseUser.email) {
         // User is signed in with Firebase (Google or Email/Password)
         setUser({ email: firebaseUser.email, isLoggedIn: true });
         setIsCloudUser(true);
 
-        // Load data from Firestore
+        // Load initial data from Firestore
         try {
           console.log('Loading data from Firestore for user:', firebaseUser.uid);
           const cloudData = await cloudSync.load(firebaseUser.uid);
 
           if (cloudData) {
-            console.log('Cloud data loaded successfully');
+            console.log('Cloud data loaded successfully:', {
+              equipment: cloudData.equipment?.length || 0,
+              exercises: cloudData.exercises?.length || 0,
+              routines: cloudData.routines?.length || 0,
+              logs: cloudData.logs?.length || 0
+            });
             isCloudUpdate.current = true;
             setData(cloudData);
           } else {
@@ -63,6 +76,14 @@ function App() {
             // Save initial data to cloud
             await cloudSync.save(INITIAL_DATA, firebaseUser.uid);
           }
+
+          // Subscribe to real-time updates for this user
+          unsubscribeFromData = cloudSync.subscribe(firebaseUser.uid, (newData) => {
+            console.log('Real-time update received from cloud');
+            isCloudUpdate.current = true;
+            setData(newData);
+          });
+
         } catch (error) {
           console.error('Error loading cloud data:', error);
           setData(INITIAL_DATA);
@@ -90,7 +111,12 @@ function App() {
       setIsLoaded(true);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeFromData) {
+        unsubscribeFromData();
+      }
+    };
   }, []);
 
   // Save data - to IndexedDB (local) or Firestore (cloud)
