@@ -6,6 +6,8 @@ import { ActiveWorkoutView } from './views/ActiveWorkout';
 import { SettingsView } from './views/Settings';
 import { Book, Dumbbell, PlayCircle, Settings } from 'lucide-react';
 import { db } from './utils/db';
+import { auth, googleProvider } from './firebase';
+import { signInWithPopup } from 'firebase/auth';
 
 const INITIAL_DATA: AppData = {
   equipment: [],
@@ -30,7 +32,7 @@ function App() {
         const dbKey = user.email === 'Yerel Hesap' ? 'root_data' : user.email;
         // 1. Try to load from IndexedDB (High Capacity)
         const dbData = await db.load(dbKey);
-        
+
         if (dbData) {
           // MIGRATION CHECK: Ensure routines follow new structure
           const migratedRoutines = dbData.routines.map((r: any) => {
@@ -38,17 +40,17 @@ function App() {
               // Convert old string[] to RoutineExercise[]
               return {
                 ...r,
-                exercises: r.exerciseIds.map((id: string) => ({ 
-                  exerciseId: id, 
-                  targetSets: 3, 
-                  targetReps: 10 
+                exercises: r.exerciseIds.map((id: string) => ({
+                  exerciseId: id,
+                  targetSets: 3,
+                  targetReps: 10
                 })),
                 exerciseIds: undefined // cleanup
               };
             }
             return r;
           });
-          
+
           setData({ ...dbData, routines: migratedRoutines });
         } else {
           // If loading root_data (guest) and it's empty, check legacy localStorage
@@ -57,15 +59,15 @@ function App() {
             if (legacyData) {
               try {
                 const parsed = JSON.parse(legacyData);
-                
+
                 // Legacy migration for routines
                 if (parsed.routines) {
                   parsed.routines = parsed.routines.map((r: any) => {
-                      if (r.exerciseIds) {
-                        r.exercises = r.exerciseIds.map((id: string) => ({ exerciseId: id, targetSets: 3, targetReps: 10 }));
-                        delete r.exerciseIds;
-                      }
-                      return r;
+                    if (r.exerciseIds) {
+                      r.exercises = r.exerciseIds.map((id: string) => ({ exerciseId: id, targetSets: 3, targetReps: 10 }));
+                      delete r.exerciseIds;
+                    }
+                    return r;
                   });
                 }
 
@@ -78,7 +80,7 @@ function App() {
                 setData(INITIAL_DATA);
               }
             } else {
-               setData(INITIAL_DATA);
+              setData(INITIAL_DATA);
             }
           } else {
             // New user, fresh data
@@ -106,11 +108,11 @@ function App() {
       } catch (e) {
         console.error("Storage save failed", e);
         if (e instanceof DOMException && (e.name === 'QuotaExceededError')) {
-           alert("Cihaz hafızası doldu! Veriler kaydedilemiyor.");
+          alert("Cihaz hafızası doldu! Veriler kaydedilemiyor.");
         }
       }
     };
-    
+
     // Debounce save slightly to prevent hammering IDB on every keystroke
     const timeoutId = setTimeout(saveData, 500);
     return () => clearTimeout(timeoutId);
@@ -161,6 +163,40 @@ function App() {
     }
   };
 
+  const handleGoogleLogin = async () => {
+    try {
+      setIsLoaded(false);
+      const result = await signInWithPopup(auth, googleProvider);
+      const googleEmail = result.user.email;
+
+      if (googleEmail) {
+        // Check if user has existing data
+        const existingData = await db.load(googleEmail);
+        if (existingData) {
+          setData(existingData);
+        } else {
+          // New Google user, start fresh
+          setData(INITIAL_DATA);
+        }
+
+        setUser({ email: googleEmail, isLoggedIn: true });
+        setCurrentView('logbook');
+        alert(`Google ile giriş yapıldı: ${googleEmail}`);
+      }
+    } catch (error: any) {
+      console.error('Google login error:', error);
+      if (error.code === 'auth/popup-closed-by-user') {
+        alert('Giriş işlemi iptal edildi.');
+      } else if (error.code === 'auth/unauthorized-domain') {
+        alert('Bu domain Firebase Console\'da yetkilendirilmemiş. Lütfen Firebase Console > Authentication > Settings > Authorized domains bölümünden domaini ekleyin.');
+      } else {
+        alert('Google ile giriş yapılırken bir hata oluştu.');
+      }
+    } finally {
+      setIsLoaded(true);
+    }
+  };
+
   const renderView = () => {
     if (!isLoaded) {
       return (
@@ -179,13 +215,14 @@ function App() {
       case 'active':
         return <ActiveWorkoutView data={data} onSaveLog={saveWorkoutLog} />;
       case 'settings':
-        return <SettingsView 
-          user={user} 
-          data={data} 
-          onImport={setData} 
-          onLogin={handleLogin} 
-          onRegister={handleRegister} 
-          onLogout={handleLogout} 
+        return <SettingsView
+          user={user}
+          data={data}
+          onImport={setData}
+          onLogin={handleLogin}
+          onRegister={handleRegister}
+          onLogout={handleLogout}
+          onGoogleLogin={handleGoogleLogin}
         />;
       default:
         return <LogbookView data={data} />;
@@ -200,33 +237,32 @@ function App() {
         </div>
 
         <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-slate-200 px-6 py-3 flex justify-between items-center z-40 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-          <NavButton 
-            active={currentView === 'logbook'} 
-            onClick={() => setCurrentView('logbook')} 
-            icon={<Book size={24} />} 
-            label="Kayıtlar" 
+          <NavButton
+            active={currentView === 'logbook'}
+            onClick={() => setCurrentView('logbook')}
+            icon={<Book size={24} />}
+            label="Kayıtlar"
           />
-          <NavButton 
-            active={currentView === 'center'} 
-            onClick={() => setCurrentView('center')} 
-            icon={<Dumbbell size={24} />} 
-            label="Merkez" 
+          <NavButton
+            active={currentView === 'center'}
+            onClick={() => setCurrentView('center')}
+            icon={<Dumbbell size={24} />}
+            label="Merkez"
           />
           <div className="-mt-8">
-            <button 
+            <button
               onClick={() => setCurrentView('active')}
-              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105 ${
-                currentView === 'active' ? 'bg-brand-700 ring-4 ring-brand-100' : 'bg-brand-600'
-              }`}
+              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105 ${currentView === 'active' ? 'bg-brand-700 ring-4 ring-brand-100' : 'bg-brand-600'
+                }`}
             >
               <PlayCircle size={32} className="text-white ml-1" />
             </button>
           </div>
-          <NavButton 
-            active={currentView === 'settings'} 
-            onClick={() => setCurrentView('settings')} 
-            icon={<Settings size={24} />} 
-            label="Ayarlar" 
+          <NavButton
+            active={currentView === 'settings'}
+            onClick={() => setCurrentView('settings')}
+            icon={<Settings size={24} />}
+            label="Ayarlar"
           />
         </nav>
       </main>
@@ -235,8 +271,8 @@ function App() {
 }
 
 const NavButton = ({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) => (
-  <button 
-    onClick={onClick} 
+  <button
+    onClick={onClick}
     className={`flex flex-col items-center gap-1 transition-colors ${active ? 'text-brand-600' : 'text-slate-400 hover:text-slate-600'}`}
   >
     {icon}
