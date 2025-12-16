@@ -7,8 +7,8 @@ interface SettingsProps {
   user: User;
   data: AppData;
   onImport: (data: AppData) => void;
-  onLogin: (email: string) => void;
-  onRegister: (email: string) => void;
+  onLogin: (email: string, password: string) => void;
+  onRegister: (email: string, password: string) => void;
   onLogout: () => void;
   onGoogleLogin: () => void;
   isCloudUser?: boolean;
@@ -31,14 +31,19 @@ export const SettingsView: React.FC<SettingsProps> = ({ user, data, onImport, on
       return;
     }
 
+    if (password.length < 6) {
+      alert("Şifre en az 6 karakter olmalıdır.");
+      return;
+    }
+
     if (authMode === 'register') {
       if (password !== confirmPassword) {
         alert("Şifreler eşleşmiyor.");
         return;
       }
-      onRegister(email.trim());
+      onRegister(email.trim(), password);
     } else {
-      onLogin(email.trim());
+      onLogin(email.trim(), password);
     }
 
     // Reset form on success (handled by parent logic usually, but clearing here for UX)
@@ -107,8 +112,8 @@ export const SettingsView: React.FC<SettingsProps> = ({ user, data, onImport, on
 
               {/* Sync Status Indicator */}
               <div className={`flex items-center gap-2 p-3 rounded-lg border ${isCloudUser
-                  ? 'bg-green-50 border-green-200 text-green-700'
-                  : 'bg-amber-50 border-amber-200 text-amber-700'
+                ? 'bg-green-50 border-green-200 text-green-700'
+                : 'bg-amber-50 border-amber-200 text-amber-700'
                 }`}>
                 {isCloudUser ? (
                   <>

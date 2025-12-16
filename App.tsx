@@ -7,8 +7,14 @@ import { SettingsView } from './views/Settings';
 import { Book, Dumbbell, PlayCircle, Settings } from 'lucide-react';
 import { db } from './utils/db';
 import { cloudSync } from './utils/cloudSync';
-import { auth, googleProvider } from './firebase';
-import { signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
+import {
+  auth,
+  googleProvider,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  firebaseSignOut
+} from './firebase';
+import { signInWithPopup, onAuthStateChanged } from 'firebase/auth';
 
 const INITIAL_DATA: AppData = {
   equipment: [],
@@ -29,31 +35,33 @@ function App() {
 
   // Ref to track if data change is from cloud sync (to prevent infinite loops)
   const isCloudUpdate = useRef(false);
+  // Ref to track last saved data to prevent duplicate saves
+  const lastSavedData = useRef<string>('');
 
   // Firebase Auth State Listener - Persists login across refreshes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log('Auth state changed:', firebaseUser?.email || 'No user');
+
       if (firebaseUser && firebaseUser.email) {
-        // User is signed in with Firebase (Google)
+        // User is signed in with Firebase (Google or Email/Password)
         setUser({ email: firebaseUser.email, isLoggedIn: true });
         setIsCloudUser(true);
 
         // Load data from Firestore
         try {
+          console.log('Loading data from Firestore for user:', firebaseUser.uid);
           const cloudData = await cloudSync.load(firebaseUser.uid);
+
           if (cloudData) {
+            console.log('Cloud data loaded successfully');
             isCloudUpdate.current = true;
             setData(cloudData);
           } else {
-            // First time cloud user - check if they have local data to migrate
-            const localData = await db.load(firebaseUser.email);
-            if (localData) {
-              setData(localData);
-              // Save to cloud
-              await cloudSync.save(localData, firebaseUser.uid);
-            } else {
-              setData(INITIAL_DATA);
-            }
+            console.log('No cloud data found, starting fresh');
+            setData(INITIAL_DATA);
+            // Save initial data to cloud
+            await cloudSync.save(INITIAL_DATA, firebaseUser.uid);
           }
         } catch (error) {
           console.error('Error loading cloud data:', error);
@@ -63,81 +71,27 @@ function App() {
         // User is signed out - use local account
         setUser({ email: 'Yerel Hesap', isLoggedIn: true });
         setIsCloudUser(false);
+
+        // Load local data
+        try {
+          const localData = await db.load('root_data');
+          if (localData) {
+            setData(localData);
+          } else {
+            setData(INITIAL_DATA);
+          }
+        } catch (error) {
+          console.error('Error loading local data:', error);
+          setData(INITIAL_DATA);
+        }
       }
+
       setIsAuthChecked(true);
       setIsLoaded(true);
     });
 
     return () => unsubscribe();
   }, []);
-
-  // Load local data for non-cloud users
-  useEffect(() => {
-    if (!isAuthChecked || isCloudUser) return;
-
-    const initLocalData = async () => {
-      setIsLoaded(false);
-      try {
-        const dbKey = user.email === 'Yerel Hesap' ? 'root_data' : user.email;
-        const dbData = await db.load(dbKey);
-
-        if (dbData) {
-          // MIGRATION CHECK: Ensure routines follow new structure
-          const migratedRoutines = dbData.routines.map((r: any) => {
-            if (r.exerciseIds && Array.isArray(r.exerciseIds)) {
-              return {
-                ...r,
-                exercises: r.exerciseIds.map((id: string) => ({
-                  exerciseId: id,
-                  targetSets: 3,
-                  targetReps: 10
-                })),
-                exerciseIds: undefined
-              };
-            }
-            return r;
-          });
-
-          setData({ ...dbData, routines: migratedRoutines });
-        } else {
-          // Check legacy localStorage
-          if (dbKey === 'root_data') {
-            const legacyData = localStorage.getItem('fitlog_data');
-            if (legacyData) {
-              try {
-                const parsed = JSON.parse(legacyData);
-                if (parsed.routines) {
-                  parsed.routines = parsed.routines.map((r: any) => {
-                    if (r.exerciseIds) {
-                      r.exercises = r.exerciseIds.map((id: string) => ({ exerciseId: id, targetSets: 3, targetReps: 10 }));
-                      delete r.exerciseIds;
-                    }
-                    return r;
-                  });
-                }
-                setData(parsed);
-                await db.save(parsed, 'root_data');
-                console.log("Migrated data from LocalStorage to IndexedDB");
-              } catch (e) {
-                console.error("Legacy migration failed", e);
-                setData(INITIAL_DATA);
-              }
-            } else {
-              setData(INITIAL_DATA);
-            }
-          } else {
-            setData(INITIAL_DATA);
-          }
-        }
-      } catch (err) {
-        console.error("Database initialization failed", err);
-      } finally {
-        setIsLoaded(true);
-      }
-    };
-
-    initLocalData();
-  }, [user.email, isAuthChecked, isCloudUser]);
 
   // Save data - to IndexedDB (local) or Firestore (cloud)
   useEffect(() => {
@@ -149,29 +103,39 @@ function App() {
       return;
     }
 
+    // Prevent duplicate saves
+    const dataString = JSON.stringify(data);
+    if (dataString === lastSavedData.current) {
+      return;
+    }
+
     const saveData = async () => {
       try {
+        lastSavedData.current = dataString;
+
         if (isCloudUser && auth.currentUser) {
           // Save to Firestore for cloud users
+          console.log('Saving data to Firestore...');
           await cloudSync.save(data, auth.currentUser.uid);
-          console.log('Data saved to cloud');
+          console.log('Data saved to cloud successfully');
         } else {
           // Save to IndexedDB for local users
-          const dbKey = user.email === 'Yerel Hesap' ? 'root_data' : user.email;
-          await db.save(data, dbKey);
+          await db.save(data, 'root_data');
         }
-      } catch (e) {
-        console.error("Storage save failed", e);
+      } catch (e: any) {
+        console.error("Storage save failed:", e);
         if (e instanceof DOMException && (e.name === 'QuotaExceededError')) {
           alert("Cihaz hafızası doldu! Veriler kaydedilemiyor.");
+        } else if (e.code === 'permission-denied') {
+          alert("Firestore yazma izni reddedildi. Firebase Console'dan kuralları kontrol edin.");
         }
       }
     };
 
     // Debounce save
-    const timeoutId = setTimeout(saveData, 500);
+    const timeoutId = setTimeout(saveData, 1000);
     return () => clearTimeout(timeoutId);
-  }, [data, isLoaded, isAuthChecked, isCloudUser, user.email]);
+  }, [data, isLoaded, isAuthChecked, isCloudUser]);
 
   const updateData = (newData: Partial<AppData>) => {
     setData(prev => ({ ...prev, ...newData }));
@@ -185,44 +149,72 @@ function App() {
     setCurrentView('logbook');
   };
 
-  const handleLogin = async (email: string) => {
-    setIsLoaded(false);
-    const existingData = await db.load(email);
-    if (existingData) {
-      setUser({ email, isLoggedIn: true });
-      setIsCloudUser(false);
+  // Email/Password Login - Using Firebase Auth
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      setIsLoaded(false);
+      console.log('Attempting email login for:', email);
+
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      console.log('Login successful:', userCredential.user.email);
+
+      // The onAuthStateChanged will handle the rest
       setCurrentView('logbook');
       alert(`Hoşgeldin, ${email}!`);
-    } else {
+    } catch (error: any) {
+      console.error('Login error:', error);
       setIsLoaded(true);
-      alert('Bu e-posta adresi ile kayıtlı bir hesap bulunamadı. Lütfen "Kayıt Ol" sekmesini kullanın.');
+
+      if (error.code === 'auth/user-not-found') {
+        alert('Bu e-posta adresi ile kayıtlı bir hesap bulunamadı. Lütfen "Kayıt Ol" sekmesini kullanın.');
+      } else if (error.code === 'auth/wrong-password') {
+        alert('Şifre hatalı. Lütfen tekrar deneyin.');
+      } else if (error.code === 'auth/invalid-email') {
+        alert('Geçersiz e-posta adresi.');
+      } else if (error.code === 'auth/invalid-credential') {
+        alert('E-posta veya şifre hatalı. Lütfen bilgilerinizi kontrol edin.');
+      } else {
+        alert('Giriş yapılırken bir hata oluştu: ' + error.message);
+      }
     }
   };
 
-  const handleRegister = async (email: string) => {
-    setIsLoaded(false);
-    const existingData = await db.load(email);
-    if (existingData) {
-      setIsLoaded(true);
-      alert('Bu e-posta adresi zaten kullanımda. Lütfen "Giriş Yap" sekmesini kullanın.');
-    } else {
-      setUser({ email, isLoggedIn: true });
-      setIsCloudUser(false);
-      setData(INITIAL_DATA);
+  // Email/Password Register - Using Firebase Auth
+  const handleRegister = async (email: string, password: string) => {
+    try {
+      setIsLoaded(false);
+      console.log('Attempting email registration for:', email);
+
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      console.log('Registration successful:', userCredential.user.email);
+
+      // Save initial data to Firestore for new user
+      await cloudSync.save(INITIAL_DATA, userCredential.user.uid);
+
+      // The onAuthStateChanged will handle the rest
       setCurrentView('logbook');
       alert(`Hesap oluşturuldu: ${email}`);
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      setIsLoaded(true);
+
+      if (error.code === 'auth/email-already-in-use') {
+        alert('Bu e-posta adresi zaten kullanımda. Lütfen "Giriş Yap" sekmesini kullanın.');
+      } else if (error.code === 'auth/weak-password') {
+        alert('Şifre çok zayıf. Lütfen en az 6 karakterlik bir şifre kullanın.');
+      } else if (error.code === 'auth/invalid-email') {
+        alert('Geçersiz e-posta adresi.');
+      } else {
+        alert('Kayıt olurken bir hata oluştu: ' + error.message);
+      }
     }
   };
 
   const handleLogout = async () => {
     if (confirm("Çıkış yapmak istediğinize emin misiniz?")) {
       try {
-        if (isCloudUser) {
-          await signOut(auth);
-        }
-        setUser({ email: 'Yerel Hesap', isLoggedIn: true });
-        setIsCloudUser(false);
-        setData(INITIAL_DATA);
+        await firebaseSignOut(auth);
+        // The onAuthStateChanged will handle the rest
       } catch (error) {
         console.error('Logout error:', error);
       }
@@ -232,33 +224,18 @@ function App() {
   const handleGoogleLogin = async () => {
     try {
       setIsLoaded(false);
+      console.log('Attempting Google login...');
+
       const result = await signInWithPopup(auth, googleProvider);
-      const googleEmail = result.user.email;
+      console.log('Google login successful:', result.user.email);
 
-      if (googleEmail) {
-        setIsCloudUser(true);
-
-        // Load data from Firestore
-        const cloudData = await cloudSync.load(result.user.uid);
-        if (cloudData) {
-          setData(cloudData);
-        } else {
-          // New Google user - start fresh or migrate local data
-          const localData = await db.load(googleEmail);
-          if (localData) {
-            setData(localData);
-            await cloudSync.save(localData, result.user.uid);
-          } else {
-            setData(INITIAL_DATA);
-          }
-        }
-
-        setUser({ email: googleEmail, isLoggedIn: true });
-        setCurrentView('logbook');
-        alert(`Google ile giriş yapıldı: ${googleEmail}`);
-      }
+      // The onAuthStateChanged will handle the rest
+      setCurrentView('logbook');
+      alert(`Google ile giriş yapıldı: ${result.user.email}`);
     } catch (error: any) {
       console.error('Google login error:', error);
+      setIsLoaded(true);
+
       if (error.code === 'auth/popup-closed-by-user') {
         alert('Giriş işlemi iptal edildi.');
       } else if (error.code === 'auth/unauthorized-domain') {
@@ -266,8 +243,6 @@ function App() {
       } else {
         alert('Google ile giriş yapılırken bir hata oluştu: ' + error.message);
       }
-    } finally {
-      setIsLoaded(true);
     }
   };
 
