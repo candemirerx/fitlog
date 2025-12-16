@@ -1,0 +1,7 @@
+{
+  "name": "FitLog Pro",
+  "description": "A comprehensive workout tracking application with equipment management, routine building, and detailed HTML export capabilities.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
