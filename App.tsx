@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { User, AppData, WorkoutLog, Routine } from './types';
+import React, { useState, useEffect, useRef } from 'react';
+import { User, AppData, WorkoutLog } from './types';
 import { LogbookView } from './views/Logbook';
 import { TrainingCenterView } from './views/TrainingCenter';
 import { ActiveWorkoutView } from './views/ActiveWorkout';
 import { SettingsView } from './views/Settings';
 import { Book, Dumbbell, PlayCircle, Settings } from 'lucide-react';
 import { db } from './utils/db';
+import { cloudSync } from './utils/cloudSync';
 import { auth, googleProvider } from './firebase';
-import { signInWithPopup } from 'firebase/auth';
+import { signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
 
 const INITIAL_DATA: AppData = {
   equipment: [],
@@ -23,21 +24,67 @@ function App() {
   const [data, setData] = useState<AppData>(INITIAL_DATA);
   const [currentView, setCurrentView] = useState<ViewState>('logbook');
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
+  const [isCloudUser, setIsCloudUser] = useState(false);
 
-  // Load data from IndexedDB on mount (with migration fallback)
+  // Ref to track if data change is from cloud sync (to prevent infinite loops)
+  const isCloudUpdate = useRef(false);
+
+  // Firebase Auth State Listener - Persists login across refreshes
   useEffect(() => {
-    const initData = async () => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser && firebaseUser.email) {
+        // User is signed in with Firebase (Google)
+        setUser({ email: firebaseUser.email, isLoggedIn: true });
+        setIsCloudUser(true);
+
+        // Load data from Firestore
+        try {
+          const cloudData = await cloudSync.load(firebaseUser.uid);
+          if (cloudData) {
+            isCloudUpdate.current = true;
+            setData(cloudData);
+          } else {
+            // First time cloud user - check if they have local data to migrate
+            const localData = await db.load(firebaseUser.email);
+            if (localData) {
+              setData(localData);
+              // Save to cloud
+              await cloudSync.save(localData, firebaseUser.uid);
+            } else {
+              setData(INITIAL_DATA);
+            }
+          }
+        } catch (error) {
+          console.error('Error loading cloud data:', error);
+          setData(INITIAL_DATA);
+        }
+      } else {
+        // User is signed out - use local account
+        setUser({ email: 'Yerel Hesap', isLoggedIn: true });
+        setIsCloudUser(false);
+      }
+      setIsAuthChecked(true);
+      setIsLoaded(true);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Load local data for non-cloud users
+  useEffect(() => {
+    if (!isAuthChecked || isCloudUser) return;
+
+    const initLocalData = async () => {
       setIsLoaded(false);
       try {
         const dbKey = user.email === 'Yerel Hesap' ? 'root_data' : user.email;
-        // 1. Try to load from IndexedDB (High Capacity)
         const dbData = await db.load(dbKey);
 
         if (dbData) {
           // MIGRATION CHECK: Ensure routines follow new structure
           const migratedRoutines = dbData.routines.map((r: any) => {
             if (r.exerciseIds && Array.isArray(r.exerciseIds)) {
-              // Convert old string[] to RoutineExercise[]
               return {
                 ...r,
                 exercises: r.exerciseIds.map((id: string) => ({
@@ -45,7 +92,7 @@ function App() {
                   targetSets: 3,
                   targetReps: 10
                 })),
-                exerciseIds: undefined // cleanup
+                exerciseIds: undefined
               };
             }
             return r;
@@ -53,14 +100,12 @@ function App() {
 
           setData({ ...dbData, routines: migratedRoutines });
         } else {
-          // If loading root_data (guest) and it's empty, check legacy localStorage
+          // Check legacy localStorage
           if (dbKey === 'root_data') {
             const legacyData = localStorage.getItem('fitlog_data');
             if (legacyData) {
               try {
                 const parsed = JSON.parse(legacyData);
-
-                // Legacy migration for routines
                 if (parsed.routines) {
                   parsed.routines = parsed.routines.map((r: any) => {
                     if (r.exerciseIds) {
@@ -70,9 +115,7 @@ function App() {
                     return r;
                   });
                 }
-
                 setData(parsed);
-                // Save to IDB immediately to complete migration
                 await db.save(parsed, 'root_data');
                 console.log("Migrated data from LocalStorage to IndexedDB");
               } catch (e) {
@@ -83,7 +126,6 @@ function App() {
               setData(INITIAL_DATA);
             }
           } else {
-            // New user, fresh data
             setData(INITIAL_DATA);
           }
         }
@@ -94,17 +136,30 @@ function App() {
       }
     };
 
-    initData();
-  }, [user.email]);
+    initLocalData();
+  }, [user.email, isAuthChecked, isCloudUser]);
 
-  // Save data to IndexedDB on change
+  // Save data - to IndexedDB (local) or Firestore (cloud)
   useEffect(() => {
-    if (!isLoaded) return; // Don't save empty state while loading
+    if (!isLoaded || !isAuthChecked) return;
+
+    // Skip if this update came from cloud sync
+    if (isCloudUpdate.current) {
+      isCloudUpdate.current = false;
+      return;
+    }
 
     const saveData = async () => {
       try {
-        const dbKey = user.email === 'Yerel Hesap' ? 'root_data' : user.email;
-        await db.save(data, dbKey);
+        if (isCloudUser && auth.currentUser) {
+          // Save to Firestore for cloud users
+          await cloudSync.save(data, auth.currentUser.uid);
+          console.log('Data saved to cloud');
+        } else {
+          // Save to IndexedDB for local users
+          const dbKey = user.email === 'Yerel Hesap' ? 'root_data' : user.email;
+          await db.save(data, dbKey);
+        }
       } catch (e) {
         console.error("Storage save failed", e);
         if (e instanceof DOMException && (e.name === 'QuotaExceededError')) {
@@ -113,10 +168,10 @@ function App() {
       }
     };
 
-    // Debounce save slightly to prevent hammering IDB on every keystroke
+    // Debounce save
     const timeoutId = setTimeout(saveData, 500);
     return () => clearTimeout(timeoutId);
-  }, [data, isLoaded, user.email]);
+  }, [data, isLoaded, isAuthChecked, isCloudUser, user.email]);
 
   const updateData = (newData: Partial<AppData>) => {
     setData(prev => ({ ...prev, ...newData }));
@@ -131,14 +186,15 @@ function App() {
   };
 
   const handleLogin = async (email: string) => {
-    setIsLoaded(false); // Show loading state
+    setIsLoaded(false);
     const existingData = await db.load(email);
     if (existingData) {
       setUser({ email, isLoggedIn: true });
+      setIsCloudUser(false);
       setCurrentView('logbook');
       alert(`Hoşgeldin, ${email}!`);
     } else {
-      setIsLoaded(true); // Reset loading state so UI shows up again
+      setIsLoaded(true);
       alert('Bu e-posta adresi ile kayıtlı bir hesap bulunamadı. Lütfen "Kayıt Ol" sekmesini kullanın.');
     }
   };
@@ -151,15 +207,25 @@ function App() {
       alert('Bu e-posta adresi zaten kullanımda. Lütfen "Giriş Yap" sekmesini kullanın.');
     } else {
       setUser({ email, isLoggedIn: true });
-      setData(INITIAL_DATA); // Ensure fresh start for new user
+      setIsCloudUser(false);
+      setData(INITIAL_DATA);
       setCurrentView('logbook');
       alert(`Hesap oluşturuldu: ${email}`);
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (confirm("Çıkış yapmak istediğinize emin misiniz?")) {
-      setUser({ email: 'Yerel Hesap', isLoggedIn: true });
+      try {
+        if (isCloudUser) {
+          await signOut(auth);
+        }
+        setUser({ email: 'Yerel Hesap', isLoggedIn: true });
+        setIsCloudUser(false);
+        setData(INITIAL_DATA);
+      } catch (error) {
+        console.error('Logout error:', error);
+      }
     }
   };
 
@@ -170,13 +236,21 @@ function App() {
       const googleEmail = result.user.email;
 
       if (googleEmail) {
-        // Check if user has existing data
-        const existingData = await db.load(googleEmail);
-        if (existingData) {
-          setData(existingData);
+        setIsCloudUser(true);
+
+        // Load data from Firestore
+        const cloudData = await cloudSync.load(result.user.uid);
+        if (cloudData) {
+          setData(cloudData);
         } else {
-          // New Google user, start fresh
-          setData(INITIAL_DATA);
+          // New Google user - start fresh or migrate local data
+          const localData = await db.load(googleEmail);
+          if (localData) {
+            setData(localData);
+            await cloudSync.save(localData, result.user.uid);
+          } else {
+            setData(INITIAL_DATA);
+          }
         }
 
         setUser({ email: googleEmail, isLoggedIn: true });
@@ -190,7 +264,7 @@ function App() {
       } else if (error.code === 'auth/unauthorized-domain') {
         alert('Bu domain Firebase Console\'da yetkilendirilmemiş. Lütfen Firebase Console > Authentication > Settings > Authorized domains bölümünden domaini ekleyin.');
       } else {
-        alert('Google ile giriş yapılırken bir hata oluştu.');
+        alert('Google ile giriş yapılırken bir hata oluştu: ' + error.message);
       }
     } finally {
       setIsLoaded(true);
@@ -198,11 +272,13 @@ function App() {
   };
 
   const renderView = () => {
-    if (!isLoaded) {
+    if (!isAuthChecked || !isLoaded) {
       return (
         <div className="flex h-screen items-center justify-center bg-white text-brand-600 flex-col gap-4">
           <div className="w-12 h-12 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin"></div>
-          <p className="text-sm font-medium text-slate-500">Veritabanı Yükleniyor...</p>
+          <p className="text-sm font-medium text-slate-500">
+            {!isAuthChecked ? 'Oturum kontrol ediliyor...' : 'Veritabanı Yükleniyor...'}
+          </p>
         </div>
       );
     }
@@ -223,6 +299,7 @@ function App() {
           onRegister={handleRegister}
           onLogout={handleLogout}
           onGoogleLogin={handleGoogleLogin}
+          isCloudUser={isCloudUser}
         />;
       default:
         return <LogbookView data={data} />;

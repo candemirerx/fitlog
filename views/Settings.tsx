@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { AppData, User } from '../types';
 import { Button } from '../components/Button';
-import { Download, Upload, Database, LogOut, User as UserIcon, Lock, Mail, UserPlus, LogIn } from 'lucide-react';
+import { Download, Upload, Database, LogOut, User as UserIcon, Lock, Mail, UserPlus, LogIn, Cloud, Smartphone } from 'lucide-react';
 
 interface SettingsProps {
   user: User;
@@ -11,9 +11,10 @@ interface SettingsProps {
   onRegister: (email: string) => void;
   onLogout: () => void;
   onGoogleLogin: () => void;
+  isCloudUser?: boolean;
 }
 
-export const SettingsView: React.FC<SettingsProps> = ({ user, data, onImport, onLogin, onRegister, onLogout, onGoogleLogin }) => {
+export const SettingsView: React.FC<SettingsProps> = ({ user, data, onImport, onLogin, onRegister, onLogout, onGoogleLogin, isCloudUser = false }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Auth Form State
@@ -98,14 +99,36 @@ export const SettingsView: React.FC<SettingsProps> = ({ user, data, onImport, on
                 <div className="w-10 h-10 bg-brand-200 rounded-full flex items-center justify-center text-brand-700 font-bold text-lg">
                   {user.email.charAt(0).toUpperCase()}
                 </div>
-                <div>
+                <div className="flex-1">
                   <p className="text-xs text-brand-600 font-semibold uppercase">Aktif Hesap</p>
                   <p className="font-medium text-slate-900">{user.email}</p>
                 </div>
               </div>
-              <p className="text-sm text-slate-500">
-                Bu hesaba ait veriler cihazınızda güvenle saklanmaktadır.
-              </p>
+
+              {/* Sync Status Indicator */}
+              <div className={`flex items-center gap-2 p-3 rounded-lg border ${isCloudUser
+                  ? 'bg-green-50 border-green-200 text-green-700'
+                  : 'bg-amber-50 border-amber-200 text-amber-700'
+                }`}>
+                {isCloudUser ? (
+                  <>
+                    <Cloud size={18} />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">Bulut Senkronizasyonu Aktif</p>
+                      <p className="text-xs opacity-80">Verileriniz tüm cihazlarınızda senkronize edilir.</p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Smartphone size={18} />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">Yalnızca Bu Cihaz</p>
+                      <p className="text-xs opacity-80">Verileriniz sadece bu cihazda saklanır.</p>
+                    </div>
+                  </>
+                )}
+              </div>
+
               <Button onClick={onLogout} variant="secondary" fullWidth className="text-red-600 border-red-100 hover:bg-red-50 hover:border-red-200">
                 <LogOut size={16} className="mr-2" /> Çıkış Yap
               </Button>
