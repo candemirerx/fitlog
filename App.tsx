@@ -175,6 +175,13 @@ function App() {
     setCurrentView('logbook');
   };
 
+  const deleteLog = (logId: string) => {
+    setData(prev => ({
+      ...prev,
+      logs: prev.logs.filter(log => log.id !== logId)
+    }));
+  };
+
   // Email/Password Login - Using Firebase Auth
   const handleLogin = async (email: string, password: string) => {
     try {
@@ -286,7 +293,7 @@ function App() {
 
     switch (currentView) {
       case 'logbook':
-        return <LogbookView data={data} />;
+        return <LogbookView data={data} onDeleteLog={deleteLog} />;
       case 'center':
         return <TrainingCenterView data={data} onUpdateData={updateData} />;
       case 'active':

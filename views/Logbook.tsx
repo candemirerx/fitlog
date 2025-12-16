@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
 import { WorkoutLog, AppData, Exercise, WorkoutSet } from '../types';
 import { Button } from '../components/Button';
-import { Download, Calendar, Activity, ChevronRight, ChevronDown, Clock, Timer } from 'lucide-react';
+import { Download, Calendar, Activity, ChevronDown, Clock, Timer, X } from 'lucide-react';
 import { MediaButtons } from './ActiveWorkout'; // Importing the helper component
 
 interface LogbookProps {
   data: AppData;
+  onDeleteLog?: (logId: string) => void;
 }
 
-export const LogbookView: React.FC<LogbookProps> = ({ data }) => {
+export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  
+
   const sortedLogs = [...data.logs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const getExerciseDef = (id: string) => {
@@ -89,24 +90,24 @@ export const LogbookView: React.FC<LogbookProps> = ({ data }) => {
             ${log.durationSeconds ? `<div class="log-stats">Süre: ${formatDuration(log.durationSeconds)} | Saat: ${formatTimeRange(log.startTime, log.endTime)}</div>` : ''}
             
             ${log.exercises.map(ex => {
-              const def = data.exercises.find(e => e.id === ex.exerciseId);
-              return `
+      const def = data.exercises.find(e => e.id === ex.exerciseId);
+      return `
               <div class="exercise-item">
                 <div class="exercise-name">${def?.name || 'Bilinmeyen'}</div>
                 <div class="set-list">
                   ${ex.sets.map((set, idx) => {
-                     let text = '';
-                     if(def?.trackingType === 'time') {
-                        const m = Math.floor((set.timeSeconds || 0) / 60);
-                        const s = (set.timeSeconds || 0) % 60;
-                        text = (m > 0 ? m + 'dk ' : '') + s + 'sn';
-                     } else if (def?.trackingType === 'completion') {
-                        text = 'Tamamlandı';
-                     } else {
-                        text = (set.weight ? set.weight + 'kg x ' : '') + (set.reps || 0) + ' tekrar';
-                     }
-                     return `<span class="set-tag">Set ${idx + 1}: ${text}</span>`;
-                  }).join('')}
+        let text = '';
+        if (def?.trackingType === 'time') {
+          const m = Math.floor((set.timeSeconds || 0) / 60);
+          const s = (set.timeSeconds || 0) % 60;
+          text = (m > 0 ? m + 'dk ' : '') + s + 'sn';
+        } else if (def?.trackingType === 'completion') {
+          text = 'Tamamlandı';
+        } else {
+          text = (set.weight ? set.weight + 'kg x ' : '') + (set.reps || 0) + ' tekrar';
+        }
+        return `<span class="set-tag">Set ${idx + 1}: ${text}</span>`;
+      }).join('')}
                 </div>
               </div>
             `}).join('')}
@@ -152,12 +153,12 @@ export const LogbookView: React.FC<LogbookProps> = ({ data }) => {
           sortedLogs.map((log) => {
             const isExpanded = expandedId === log.id;
             return (
-              <div 
-                key={log.id} 
+              <div
+                key={log.id}
                 className={`bg-white rounded-xl shadow-sm border transition-all overflow-hidden ${isExpanded ? 'border-brand-200 ring-1 ring-brand-100' : 'border-slate-100 hover:shadow-md'}`}
               >
                 {/* Header (Always Visible) */}
-                <div 
+                <div
                   onClick={() => toggleExpand(log.id)}
                   className="p-4 cursor-pointer flex flex-col gap-3"
                 >
@@ -166,8 +167,8 @@ export const LogbookView: React.FC<LogbookProps> = ({ data }) => {
                       <h3 className="font-bold text-slate-900 text-lg">{log.routineName}</h3>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 mt-1">
                         <div className="flex items-center gap-1">
-                           <Calendar className="w-3 h-3" />
-                           {new Date(log.date).toLocaleString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          <Calendar className="w-3 h-3" />
+                          {new Date(log.date).toLocaleString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </div>
                         {log.durationSeconds && (
                           <div className="flex items-center gap-1">
@@ -177,19 +178,36 @@ export const LogbookView: React.FC<LogbookProps> = ({ data }) => {
                         )}
                       </div>
                     </div>
-                    
+
                     <div className="flex items-center gap-2">
                       {log.media && log.media.length > 0 && (
-                         <MediaButtons media={log.media} />
+                        <MediaButtons media={log.media} />
                       )}
-                      
+
                       {log.category && (
                         <span className="px-2 py-1 bg-brand-50 text-brand-700 text-xs font-semibold rounded-md hidden sm:inline-block">
                           {log.category}
                         </span>
                       )}
+
+                      {/* Delete Button */}
+                      {onDeleteLog && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm('Bu antrenman kaydını silmek istediğinize emin misiniz?')) {
+                              onDeleteLog(log.id);
+                            }
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                          title="Kaydı Sil"
+                        >
+                          <X size={16} />
+                        </button>
+                      )}
+
                       <div className={`p-1 rounded-full transition-transform duration-200 ${isExpanded ? 'bg-slate-100 rotate-180' : ''}`}>
-                         <ChevronDown size={20} className="text-slate-400" />
+                        <ChevronDown size={20} className="text-slate-400" />
                       </div>
                     </div>
                   </div>
@@ -211,7 +229,7 @@ export const LogbookView: React.FC<LogbookProps> = ({ data }) => {
                         "{log.notes}"
                       </div>
                     )}
-                    
+
                     <div className="space-y-4 mt-4">
                       {log.exercises.map((ex, idx) => {
                         const def = getExerciseDef(ex.exerciseId);
