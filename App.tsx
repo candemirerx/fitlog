@@ -68,44 +68,6 @@ function App() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
-  // Restore from localStorage backup if IndexedDB is empty
-  useEffect(() => {
-    const restoreBackup = async () => {
-      const backup = localStorage.getItem('fitlog_backup_data');
-      if (backup && !isCloudUser) {
-        try {
-          const backupData = JSON.parse(backup);
-          const indexedData = await db.load('root_data');
-
-          // If IndexedDB is empty but backup exists, restore from backup
-          if (!indexedData ||
-            (indexedData.equipment?.length === 0 &&
-              indexedData.exercises?.length === 0 &&
-              indexedData.routines?.length === 0 &&
-              indexedData.logs?.length === 0)) {
-
-            if (backupData.equipment?.length > 0 ||
-              backupData.exercises?.length > 0 ||
-              backupData.routines?.length > 0 ||
-              backupData.logs?.length > 0) {
-              console.log('Restoring data from localStorage backup');
-              setData(backupData);
-              await db.save(backupData, 'root_data');
-            }
-          }
-          // Clear backup after successful restore
-          localStorage.removeItem('fitlog_backup_data');
-        } catch (e) {
-          console.error('Error restoring backup:', e);
-        }
-      }
-    };
-
-    if (isLoaded && isAuthChecked && !isCloudUser) {
-      restoreBackup();
-    }
-  }, [isLoaded, isAuthChecked, isCloudUser]);
-
   // Firebase Auth State Listener - Persists login across refreshes
   useEffect(() => {
     let unsubscribeFromData: (() => void) | null = null;
@@ -165,23 +127,83 @@ function App() {
         // Load local data
         try {
           console.log('Attempting to load local data from IndexedDB...');
-          const localData = await db.load('root_data');
-          console.log('Local data loaded:', localData ? {
+          let localData = await db.load('root_data');
+          console.log('Local data loaded from IndexedDB:', localData ? {
             equipment: localData.equipment?.length || 0,
             exercises: localData.exercises?.length || 0,
             routines: localData.routines?.length || 0,
             logs: localData.logs?.length || 0
           } : 'null');
 
-          if (localData && (localData.equipment?.length > 0 || localData.exercises?.length > 0 || localData.routines?.length > 0 || localData.logs?.length > 0)) {
-            setData(localData);
+          // Check localStorage backup if IndexedDB is empty
+          const hasLocalData = localData && (
+            (localData.equipment?.length || 0) > 0 ||
+            (localData.exercises?.length || 0) > 0 ||
+            (localData.routines?.length || 0) > 0 ||
+            (localData.logs?.length || 0) > 0
+          );
+
+          if (!hasLocalData) {
+            const backup = localStorage.getItem('fitlog_backup_data');
+            if (backup) {
+              try {
+                const backupData = JSON.parse(backup);
+                const hasBackupData = (
+                  (backupData.equipment?.length || 0) > 0 ||
+                  (backupData.exercises?.length || 0) > 0 ||
+                  (backupData.routines?.length || 0) > 0 ||
+                  (backupData.logs?.length || 0) > 0
+                );
+
+                if (hasBackupData) {
+                  console.log('Restoring from localStorage backup:', {
+                    equipment: backupData.equipment?.length || 0,
+                    exercises: backupData.exercises?.length || 0,
+                    routines: backupData.routines?.length || 0,
+                    logs: backupData.logs?.length || 0
+                  });
+                  localData = backupData;
+                  // Also save to IndexedDB
+                  await db.save(backupData, 'root_data');
+                }
+              } catch (e) {
+                console.error('Error parsing backup:', e);
+              }
+            }
+          }
+
+          if (localData) {
+            // Merge with initial data structure to ensure all fields exist
+            const mergedData: AppData = {
+              equipment: localData.equipment || [],
+              exercises: localData.exercises || [],
+              routines: localData.routines || [],
+              logs: localData.logs || []
+            };
+            setData(mergedData);
+            console.log('Local data set successfully');
           } else {
             console.log('No local data found, using initial data');
             setData(INITIAL_DATA);
+            // Save initial data to IndexedDB
+            await db.save(INITIAL_DATA, 'root_data');
           }
         } catch (error) {
           console.error('Error loading local data:', error);
-          setData(INITIAL_DATA);
+
+          // Try localStorage backup on IndexedDB failure
+          const backup = localStorage.getItem('fitlog_backup_data');
+          if (backup) {
+            try {
+              const backupData = JSON.parse(backup);
+              console.log('Falling back to localStorage backup due to IndexedDB error');
+              setData(backupData);
+            } catch (e) {
+              setData(INITIAL_DATA);
+            }
+          } else {
+            setData(INITIAL_DATA);
+          }
         }
       }
 
@@ -230,11 +252,22 @@ function App() {
             routines: data.routines?.length || 0,
             logs: data.logs?.length || 0
           });
+
+          // Always keep localStorage backup for local users
+          localStorage.setItem('fitlog_backup_data', dataString);
+
           await db.save(data, 'root_data');
           console.log('Data saved to IndexedDB successfully');
         }
       } catch (e: any) {
         console.error("Storage save failed:", e);
+
+        // Keep localStorage backup on failure
+        if (!isCloudUser) {
+          localStorage.setItem('fitlog_backup_data', dataString);
+          console.log('Data backed up to localStorage due to IndexedDB failure');
+        }
+
         if (e instanceof DOMException && (e.name === 'QuotaExceededError')) {
           alert("Cihaz hafızası doldu! Veriler kaydedilemiyor.");
         } else if (e.code === 'permission-denied') {
@@ -243,8 +276,8 @@ function App() {
       }
     };
 
-    // Debounce save - reduced to 500ms for faster persistence
-    const timeoutId = setTimeout(saveData, 500);
+    // Debounce save - reduced to 300ms for faster persistence
+    const timeoutId = setTimeout(saveData, 300);
     return () => clearTimeout(timeoutId);
   }, [data, isLoaded, isAuthChecked, isCloudUser]);
 

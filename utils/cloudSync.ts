@@ -5,6 +5,35 @@ import { AppData } from '../types';
 
 const COLLECTION_NAME = 'userData';
 
+/**
+ * Recursively removes undefined values from an object
+ * Firestore does not accept undefined values
+ */
+const removeUndefined = (obj: any): any => {
+    if (obj === null || obj === undefined) {
+        return null;
+    }
+
+    if (Array.isArray(obj)) {
+        return obj.map(item => removeUndefined(item));
+    }
+
+    if (typeof obj === 'object') {
+        const cleaned: any = {};
+        for (const key in obj) {
+            if (obj.hasOwnProperty(key)) {
+                const value = obj[key];
+                if (value !== undefined) {
+                    cleaned[key] = removeUndefined(value);
+                }
+            }
+        }
+        return cleaned;
+    }
+
+    return obj;
+};
+
 export const cloudSync = {
     /**
      * Save user data to Firestore
@@ -12,8 +41,10 @@ export const cloudSync = {
     save: async (data: AppData, userId: string): Promise<void> => {
         try {
             const userDocRef = doc(firestore, COLLECTION_NAME, userId);
+            // Remove undefined values before saving to Firestore
+            const sanitizedData = removeUndefined(data);
             await setDoc(userDocRef, {
-                ...data,
+                ...sanitizedData,
                 updatedAt: new Date().toISOString()
             });
             console.log('Cloud sync: Data saved successfully');
