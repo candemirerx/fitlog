@@ -37,6 +37,74 @@ function App() {
   const isCloudUpdate = useRef(false);
   // Ref to track last saved data to prevent duplicate saves
   const lastSavedData = useRef<string>('');
+  // Ref to hold current data for beforeunload handler
+  const dataRef = useRef<AppData>(INITIAL_DATA);
+  const isCloudUserRef = useRef(false);
+
+  // Keep refs updated
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+
+  useEffect(() => {
+    isCloudUserRef.current = isCloudUser;
+  }, [isCloudUser]);
+
+  // Save data on page unload/refresh
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Synchronously save to IndexedDB for local users
+      if (!isCloudUserRef.current && dataRef.current) {
+        const dataString = JSON.stringify(dataRef.current);
+        if (dataString !== lastSavedData.current) {
+          console.log('Saving data before page unload...');
+          // Use synchronous localStorage as a backup
+          localStorage.setItem('fitlog_backup_data', dataString);
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
+  // Restore from localStorage backup if IndexedDB is empty
+  useEffect(() => {
+    const restoreBackup = async () => {
+      const backup = localStorage.getItem('fitlog_backup_data');
+      if (backup && !isCloudUser) {
+        try {
+          const backupData = JSON.parse(backup);
+          const indexedData = await db.load('root_data');
+
+          // If IndexedDB is empty but backup exists, restore from backup
+          if (!indexedData ||
+            (indexedData.equipment?.length === 0 &&
+              indexedData.exercises?.length === 0 &&
+              indexedData.routines?.length === 0 &&
+              indexedData.logs?.length === 0)) {
+
+            if (backupData.equipment?.length > 0 ||
+              backupData.exercises?.length > 0 ||
+              backupData.routines?.length > 0 ||
+              backupData.logs?.length > 0) {
+              console.log('Restoring data from localStorage backup');
+              setData(backupData);
+              await db.save(backupData, 'root_data');
+            }
+          }
+          // Clear backup after successful restore
+          localStorage.removeItem('fitlog_backup_data');
+        } catch (e) {
+          console.error('Error restoring backup:', e);
+        }
+      }
+    };
+
+    if (isLoaded && isAuthChecked && !isCloudUser) {
+      restoreBackup();
+    }
+  }, [isLoaded, isAuthChecked, isCloudUser]);
 
   // Firebase Auth State Listener - Persists login across refreshes
   useEffect(() => {
@@ -90,15 +158,25 @@ function App() {
         }
       } else {
         // User is signed out - use local account
+        console.log('No Firebase user - using local account');
         setUser({ email: 'Yerel Hesap', isLoggedIn: true });
         setIsCloudUser(false);
 
         // Load local data
         try {
+          console.log('Attempting to load local data from IndexedDB...');
           const localData = await db.load('root_data');
-          if (localData) {
+          console.log('Local data loaded:', localData ? {
+            equipment: localData.equipment?.length || 0,
+            exercises: localData.exercises?.length || 0,
+            routines: localData.routines?.length || 0,
+            logs: localData.logs?.length || 0
+          } : 'null');
+
+          if (localData && (localData.equipment?.length > 0 || localData.exercises?.length > 0 || localData.routines?.length > 0 || localData.logs?.length > 0)) {
             setData(localData);
           } else {
+            console.log('No local data found, using initial data');
             setData(INITIAL_DATA);
           }
         } catch (error) {
@@ -146,7 +224,14 @@ function App() {
           console.log('Data saved to cloud successfully');
         } else {
           // Save to IndexedDB for local users
+          console.log('Saving data to IndexedDB...', {
+            equipment: data.equipment?.length || 0,
+            exercises: data.exercises?.length || 0,
+            routines: data.routines?.length || 0,
+            logs: data.logs?.length || 0
+          });
           await db.save(data, 'root_data');
+          console.log('Data saved to IndexedDB successfully');
         }
       } catch (e: any) {
         console.error("Storage save failed:", e);
@@ -158,8 +243,8 @@ function App() {
       }
     };
 
-    // Debounce save
-    const timeoutId = setTimeout(saveData, 1000);
+    // Debounce save - reduced to 500ms for faster persistence
+    const timeoutId = setTimeout(saveData, 500);
     return () => clearTimeout(timeoutId);
   }, [data, isLoaded, isAuthChecked, isCloudUser]);
 
