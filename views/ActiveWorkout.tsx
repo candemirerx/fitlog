@@ -4,7 +4,7 @@ import { Button } from '../components/Button';
 import {
   Check, Play, Save, Clock, AlertCircle, Camera, Video,
   Image as ImageIcon, X, Trash2, ChevronDown, Filter,
-  MessageSquare, Timer, Dumbbell, RotateCcw, ChevronRight
+  MessageSquare, Timer, Dumbbell, RotateCcw, ChevronRight, Pencil
 } from 'lucide-react';
 
 // Media Viewer Component
@@ -60,12 +60,17 @@ interface ActiveWorkoutProps {
   onSaveLog: (log: WorkoutLog) => void;
 }
 
-// Simplified Exercise Session Data
+// Simplified Exercise Session Data with override values for inline editing
 interface ExerciseSession {
   exerciseId: string;
   completed: boolean;
   note: string;
   actualDurationSeconds?: number;
+  // Override values for inline editing (only used in free workout)
+  overrideSets?: number;
+  overrideReps?: number;
+  overrideWeight?: number;
+  overrideTimeSeconds?: number;
 }
 
 export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLog }) => {
@@ -87,6 +92,14 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
 
   // Expanded Exercise Note
   const [expandedNoteIdx, setExpandedNoteIdx] = useState<number | null>(null);
+
+  // Expanded Edit Index (for inline editing)
+  const [expandedEditIdx, setExpandedEditIdx] = useState<number | null>(null);
+
+  // Quick Save Modal State
+  const [quickSaveModalOpen, setQuickSaveModalOpen] = useState(false);
+  const [quickSaveRoutine, setQuickSaveRoutine] = useState<Routine | null>(null);
+  const [quickSaveSelectedExercises, setQuickSaveSelectedExercises] = useState<string[]>([]);
 
   // File Inputs
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -266,6 +279,14 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
     });
   };
 
+  const updateExerciseOverride = (idx: number, overrides: Partial<Pick<ExerciseSession, 'overrideSets' | 'overrideReps' | 'overrideWeight' | 'overrideTimeSeconds'>>) => {
+    setSessionExercises(prev => {
+      const updated = [...prev];
+      updated[idx] = { ...updated[idx], ...overrides };
+      return updated;
+    });
+  };
+
   const addExerciseToSession = (exerciseId: string) => {
     setSessionExercises(prev => [...prev, { exerciseId, completed: false, note: '' }]);
   };
@@ -296,10 +317,11 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
     // Convert simplified session to WorkoutLog format
     const exerciseLogs: WorkoutExerciseLog[] = sessionExercises.map(ex => {
       const exerciseDef = data.exercises.find(e => e.id === ex.exerciseId);
+      // Use override values if present, otherwise fall back to exercise defaults
       const sets: WorkoutSet[] = [{
-        weight: exerciseDef?.defaultWeight || 0,
-        reps: exerciseDef?.defaultReps || 0,
-        timeSeconds: exerciseDef?.defaultTimeSeconds || 0,
+        weight: ex.overrideWeight ?? exerciseDef?.defaultWeight ?? 0,
+        reps: ex.overrideReps ?? exerciseDef?.defaultReps ?? 0,
+        timeSeconds: ex.overrideTimeSeconds ?? exerciseDef?.defaultTimeSeconds ?? 0,
         completed: ex.completed
       }];
       return { exerciseId: ex.exerciseId, sets };
@@ -332,6 +354,82 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
     setStartTime(null);
   };
 
+  // Open Quick Save Modal for Routines
+  const openQuickSaveModal = (routine: Routine) => {
+    setQuickSaveRoutine(routine);
+    // Pre-select all exercises
+    setQuickSaveSelectedExercises(routine.exercises?.map(ex => ex.exerciseId) || []);
+    setQuickSaveModalOpen(true);
+  };
+
+  // Toggle exercise selection in quick save modal
+  const toggleQuickSaveExercise = (exerciseId: string) => {
+    setQuickSaveSelectedExercises(prev =>
+      prev.includes(exerciseId)
+        ? prev.filter(id => id !== exerciseId)
+        : [...prev, exerciseId]
+    );
+  };
+
+  // Quick Save - Directly save to logbook without starting timer
+  const quickSaveFreeWorkout = () => {
+    const now = new Date();
+
+    const newLog: WorkoutLog = {
+      id: Date.now().toString(),
+      date: now.toISOString(),
+      startTime: now.toISOString(),
+      endTime: now.toISOString(),
+      durationSeconds: 0,
+      routineName: 'Serbest Antrenman',
+      category: 'Diğer',
+      exercises: [],
+      notes: '',
+      media: []
+    };
+
+    onSaveLog(newLog);
+  };
+
+  // Quick Save for Routines with selected exercises
+  const confirmQuickSave = () => {
+    if (quickSaveSelectedExercises.length === 0) {
+      alert('Lütfen en az bir egzersiz seçin.');
+      return;
+    }
+
+    const now = new Date();
+
+    const exerciseLogs: WorkoutExerciseLog[] = quickSaveSelectedExercises.map(exId => {
+      const exerciseDef = data.exercises.find(e => e.id === exId);
+      const sets: WorkoutSet[] = [{
+        weight: exerciseDef?.defaultWeight || 0,
+        reps: exerciseDef?.defaultReps || 0,
+        timeSeconds: exerciseDef?.defaultTimeSeconds || 0,
+        completed: true
+      }];
+      return { exerciseId: exId, sets };
+    });
+
+    const newLog: WorkoutLog = {
+      id: Date.now().toString(),
+      date: now.toISOString(),
+      startTime: now.toISOString(),
+      endTime: now.toISOString(),
+      durationSeconds: 0,
+      routineName: quickSaveRoutine?.name || 'Serbest Antrenman',
+      category: quickSaveRoutine?.category || 'Diğer',
+      exercises: exerciseLogs,
+      notes: '',
+      media: []
+    };
+
+    onSaveLog(newLog);
+    setQuickSaveModalOpen(false);
+    setQuickSaveRoutine(null);
+    setQuickSaveSelectedExercises([]);
+  };
+
   // SELECTION SCREEN
   if (step === 'select') {
     const categories = ['Tümü', ...Array.from(new Set(data.routines.map(r => r.category)))];
@@ -343,18 +441,36 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
       <div className="space-y-6 pb-20">
         <h2 className="text-xl font-bold text-slate-900">Antrenman Başlat</h2>
 
-        <button
-          onClick={() => startWorkout()}
-          className="w-full flex items-center justify-between p-5 bg-gradient-to-r from-brand-500 to-brand-600 text-white rounded-xl shadow-lg hover:shadow-xl transition-all group"
-        >
+        {/* Free Workout Card */}
+        <div className="w-full flex items-center justify-between p-5 bg-gradient-to-r from-brand-500 to-brand-600 text-white rounded-xl shadow-lg">
           <div>
             <span className="block font-bold text-lg">Serbest Antrenman</span>
             <span className="text-brand-100 text-sm">Egzersiz seçerek başla</span>
           </div>
-          <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center group-hover:bg-white/30 transition-colors">
-            <Play fill="currentColor" size={24} />
+          <div className="flex items-center gap-2">
+            {/* Quick Save Button */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirm('Boş bir serbest antrenman kaydı oluşturulacak. Onaylıyor musunuz?')) {
+                  quickSaveFreeWorkout();
+                }
+              }}
+              className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center hover:bg-white/30 transition-colors"
+              title="Direkt Kaydet"
+            >
+              <Save size={20} />
+            </button>
+            {/* Start Button */}
+            <button
+              onClick={() => startWorkout()}
+              className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center hover:bg-white/30 transition-colors"
+              title="Antrenmanı Başlat"
+            >
+              <Play fill="currentColor" size={24} />
+            </button>
           </div>
-        </button>
+        </div>
 
         <div className="flex items-center justify-between mt-6 mb-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-500 uppercase tracking-wider">
@@ -376,19 +492,36 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
         <div className="space-y-3">
           {filteredRoutines.length > 0 ? (
             filteredRoutines.map(routine => (
-              <button
+              <div
                 key={routine.id}
-                onClick={() => startWorkout(routine)}
                 className="w-full bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between hover:border-brand-300 transition-colors text-left group"
               >
-                <div>
+                <div className="flex-1" onClick={() => startWorkout(routine)} style={{ cursor: 'pointer' }}>
                   <span className="block font-bold text-slate-900 group-hover:text-brand-700 transition-colors">{routine.name}</span>
                   <span className="text-xs text-slate-500">{routine.exercises?.length || 0} egzersiz • {routine.category}</span>
                 </div>
-                <div className="w-10 h-10 rounded-full bg-brand-50 flex items-center justify-center text-brand-600 group-hover:bg-brand-500 group-hover:text-white transition-all">
-                  <ChevronRight size={20} />
+                <div className="flex items-center gap-2">
+                  {/* Quick Save Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openQuickSaveModal(routine);
+                    }}
+                    className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center text-green-600 hover:bg-green-500 hover:text-white transition-all"
+                    title="Direkt Kaydet"
+                  >
+                    <Save size={18} />
+                  </button>
+                  {/* Start Button */}
+                  <button
+                    onClick={() => startWorkout(routine)}
+                    className="w-10 h-10 rounded-full bg-brand-50 flex items-center justify-center text-brand-600 hover:bg-brand-500 hover:text-white transition-all"
+                    title="Antrenmanı Başlat"
+                  >
+                    <ChevronRight size={20} />
+                  </button>
                 </div>
-              </button>
+              </div>
             ))
           ) : (
             <div className="text-center py-8 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
@@ -396,6 +529,101 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
             </div>
           )}
         </div>
+
+        {/* Quick Save Modal */}
+        {quickSaveModalOpen && quickSaveRoutine && (
+          <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col">
+              {/* Modal Header */}
+              <div className="p-5 border-b border-slate-200 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-lg text-slate-900">Direkt Kaydet</h3>
+                  <p className="text-sm text-slate-500">{quickSaveRoutine.name}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setQuickSaveModalOpen(false);
+                    setQuickSaveRoutine(null);
+                    setQuickSaveSelectedExercises([]);
+                  }}
+                  className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+                >
+                  <X size={20} className="text-slate-500" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="flex-1 overflow-y-auto p-5">
+                <p className="text-sm text-slate-600 mb-4">Kaydetmek istediğiniz egzersizleri seçin:</p>
+                <div className="space-y-2">
+                  {quickSaveRoutine.exercises?.map((ex, idx) => {
+                    const exerciseDef = data.exercises.find(e => e.id === ex.exerciseId);
+                    if (!exerciseDef) return null;
+                    const isSelected = quickSaveSelectedExercises.includes(ex.exerciseId);
+
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => toggleQuickSaveExercise(ex.exerciseId)}
+                        className={`w-full p-3 rounded-xl flex items-center gap-3 transition-all text-left ${isSelected
+                          ? 'bg-brand-50 border-2 border-brand-500'
+                          : 'bg-slate-50 border-2 border-transparent hover:border-slate-300'
+                          }`}
+                      >
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all ${isSelected
+                          ? 'bg-brand-500 text-white'
+                          : 'bg-slate-200 text-slate-400'
+                          }`}>
+                          <Check size={16} strokeWidth={3} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className={`block font-medium ${isSelected ? 'text-brand-700' : 'text-slate-700'}`}>
+                            {exerciseDef.name}
+                          </span>
+                          <span className="text-xs text-slate-500">
+                            {exerciseDef.defaultSets && `${exerciseDef.defaultSets} set`}
+                            {exerciseDef.defaultReps && ` • ${exerciseDef.defaultReps} tekrar`}
+                            {exerciseDef.defaultWeight && ` • ${exerciseDef.defaultWeight}kg`}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Select All / Deselect All */}
+                <div className="mt-4 flex gap-2">
+                  <button
+                    onClick={() => setQuickSaveSelectedExercises(quickSaveRoutine.exercises?.map(ex => ex.exerciseId) || [])}
+                    className="flex-1 py-2 px-3 text-sm text-brand-600 bg-brand-50 rounded-lg hover:bg-brand-100 transition-colors"
+                  >
+                    Tümünü Seç
+                  </button>
+                  <button
+                    onClick={() => setQuickSaveSelectedExercises([])}
+                    className="flex-1 py-2 px-3 text-sm text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                  >
+                    Seçimi Temizle
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-5 border-t border-slate-200 bg-slate-50">
+                <Button
+                  onClick={confirmQuickSave}
+                  fullWidth
+                  size="lg"
+                  disabled={quickSaveSelectedExercises.length === 0}
+                  className="flex items-center justify-center gap-2"
+                >
+                  <Save size={18} />
+                  Kaydet ({quickSaveSelectedExercises.length} egzersiz)
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -506,8 +734,8 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
             <div
               key={idx}
               className={`bg-white rounded-xl shadow-sm border overflow-hidden transition-all ${exSession.completed
-                  ? 'border-green-300 bg-green-50/30'
-                  : 'border-slate-100'
+                ? 'border-green-300 bg-green-50/30'
+                : 'border-slate-100'
                 }`}
             >
               {/* Exercise Header */}
@@ -516,8 +744,8 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
                 <button
                   onClick={() => toggleExerciseComplete(idx)}
                   className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-all ${exSession.completed
-                      ? 'bg-green-500 text-white shadow-md'
-                      : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                    ? 'bg-green-500 text-white shadow-md'
+                    : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
                     }`}
                 >
                   <Check size={20} strokeWidth={3} />
@@ -529,30 +757,26 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
                     {exerciseDef.name}
                   </h3>
 
-                  {/* Exercise Details */}
+                  {/* Exercise Details - Show override values if present */}
                   <div className="mt-1 flex flex-wrap gap-2 text-xs">
                     {exerciseDef.trackingType === 'weight_reps' && (
                       <>
-                        {exerciseDef.defaultSets && (
-                          <span className="px-2 py-0.5 bg-brand-50 text-brand-700 rounded-full">
-                            {exerciseDef.defaultSets} set
-                          </span>
-                        )}
-                        {exerciseDef.defaultReps && (
-                          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full">
-                            {exerciseDef.defaultReps} tekrar
-                          </span>
-                        )}
-                        {exerciseDef.defaultWeight && (
-                          <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full">
-                            {exerciseDef.defaultWeight} kg
+                        <span className={`px-2 py-0.5 rounded-full ${exSession.overrideSets !== undefined ? 'bg-brand-100 text-brand-800 font-semibold' : 'bg-brand-50 text-brand-700'}`}>
+                          {exSession.overrideSets ?? exerciseDef.defaultSets ?? 3} set
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-full ${exSession.overrideReps !== undefined ? 'bg-blue-100 text-blue-800 font-semibold' : 'bg-blue-50 text-blue-700'}`}>
+                          {exSession.overrideReps ?? exerciseDef.defaultReps ?? 10} tekrar
+                        </span>
+                        {(exSession.overrideWeight !== undefined || exerciseDef.defaultWeight) && (
+                          <span className={`px-2 py-0.5 rounded-full ${exSession.overrideWeight !== undefined ? 'bg-purple-100 text-purple-800 font-semibold' : 'bg-purple-50 text-purple-700'}`}>
+                            {exSession.overrideWeight ?? exerciseDef.defaultWeight} kg
                           </span>
                         )}
                       </>
                     )}
-                    {exerciseDef.trackingType === 'time' && exerciseDef.defaultTimeSeconds && (
-                      <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full">
-                        {formatTimeDetailed(exerciseDef.defaultTimeSeconds)}
+                    {exerciseDef.trackingType === 'time' && (
+                      <span className={`px-2 py-0.5 rounded-full ${exSession.overrideTimeSeconds !== undefined ? 'bg-amber-100 text-amber-800 font-semibold' : 'bg-amber-50 text-amber-700'}`}>
+                        {formatTimeDetailed(exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 60)}
                       </span>
                     )}
                     {equipmentNames && (
@@ -573,11 +797,24 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
                 {/* Actions */}
                 <div className="flex items-center gap-1">
                   {exerciseDef.media && <MediaButtons media={[exerciseDef.media]} compact />}
+                  {/* Edit Button - Only for free workout */}
+                  {selectedRoutine?.id === 'custom' && (
+                    <button
+                      onClick={() => setExpandedEditIdx(expandedEditIdx === idx ? null : idx)}
+                      className={`p-2 rounded-lg transition-colors ${expandedEditIdx === idx
+                        ? 'bg-purple-100 text-purple-600'
+                        : 'text-slate-400 hover:bg-slate-100'
+                        }`}
+                      title="Değerleri Düzenle"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                  )}
                   <button
                     onClick={() => setExpandedNoteIdx(expandedNoteIdx === idx ? null : idx)}
                     className={`p-2 rounded-lg transition-colors ${exSession.note
-                        ? 'bg-brand-100 text-brand-600'
-                        : 'text-slate-400 hover:bg-slate-100'
+                      ? 'bg-brand-100 text-brand-600'
+                      : 'text-slate-400 hover:bg-slate-100'
                       }`}
                   >
                     <MessageSquare size={16} />
@@ -590,6 +827,85 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
                   </button>
                 </div>
               </div>
+
+              {/* Expandable Edit Section - For inline value editing */}
+              {expandedEditIdx === idx && selectedRoutine?.id === 'custom' && (
+                <div className="px-4 pb-4 border-t border-slate-100 bg-purple-50/50">
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    {exerciseDef.trackingType === 'weight_reps' && (
+                      <>
+                        <div>
+                          <label className="text-xs text-slate-500 block mb-1">Set Sayısı</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={exSession.overrideSets ?? exerciseDef.defaultSets ?? 3}
+                            onChange={(e) => updateExerciseOverride(idx, { overrideSets: parseInt(e.target.value) || 1 })}
+                            className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-500 block mb-1">Tekrar</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={exSession.overrideReps ?? exerciseDef.defaultReps ?? 10}
+                            onChange={(e) => updateExerciseOverride(idx, { overrideReps: parseInt(e.target.value) || 1 })}
+                            className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="text-xs text-slate-500 block mb-1">Ağırlık (kg)</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={exSession.overrideWeight ?? exerciseDef.defaultWeight ?? ''}
+                            onChange={(e) => updateExerciseOverride(idx, { overrideWeight: e.target.value ? parseFloat(e.target.value) : undefined })}
+                            placeholder="Opsiyonel"
+                            className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                          />
+                        </div>
+                      </>
+                    )}
+                    {exerciseDef.trackingType === 'time' && (
+                      <div className="col-span-2">
+                        <label className="text-xs text-slate-500 block mb-1">Süre</label>
+                        <div className="flex gap-2">
+                          <div className="flex-1">
+                            <input
+                              type="number"
+                              min="0"
+                              value={Math.floor((exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 60) / 60)}
+                              onChange={(e) => {
+                                const mins = parseInt(e.target.value) || 0;
+                                const currentSecs = (exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 60) % 60;
+                                updateExerciseOverride(idx, { overrideTimeSeconds: mins * 60 + currentSecs });
+                              }}
+                              className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                            />
+                            <span className="text-xs text-slate-400 mt-0.5 block">dakika</span>
+                          </div>
+                          <div className="flex-1">
+                            <input
+                              type="number"
+                              min="0"
+                              max="59"
+                              value={(exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 60) % 60}
+                              onChange={(e) => {
+                                const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
+                                const currentMins = Math.floor((exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 60) / 60);
+                                updateExerciseOverride(idx, { overrideTimeSeconds: currentMins * 60 + secs });
+                              }}
+                              className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                            />
+                            <span className="text-xs text-slate-400 mt-0.5 block">saniye</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Expandable Note Section */}
               {expandedNoteIdx === idx && (
