@@ -354,11 +354,10 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
     setStartTime(null);
   };
 
-  // Open Quick Save Modal for Routines
-  const openQuickSaveModal = (routine: Routine) => {
-    setQuickSaveRoutine(routine);
-    // Pre-select all exercises
-    setQuickSaveSelectedExercises(routine.exercises?.map(ex => ex.exerciseId) || []);
+  // Open Quick Save Modal for Free Workout (egzersiz seçimi için)
+  const openFreeWorkoutModal = () => {
+    setQuickSaveRoutine(null);
+    setQuickSaveSelectedExercises([]);
     setQuickSaveModalOpen(true);
   };
 
@@ -371,9 +370,26 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
     );
   };
 
-  // Quick Save - Directly save to logbook without starting timer
-  const quickSaveFreeWorkout = () => {
+  // Quick Save for Routines - Directly save without modal
+  const quickSaveRoutineDirectly = (routine: Routine) => {
+    if (!routine.exercises || routine.exercises.length === 0) {
+      alert('Bu antrenman programında egzersiz bulunmuyor.');
+      return;
+    }
+
     const now = new Date();
+
+    const exerciseLogs: WorkoutExerciseLog[] = routine.exercises.map(ex => {
+      const exerciseDef = data.exercises.find(e => e.id === ex.exerciseId);
+      const routineEx = routine.exercises?.find(re => re.exerciseId === ex.exerciseId);
+      const sets: WorkoutSet[] = [{
+        weight: routineEx?.targetWeight || exerciseDef?.defaultWeight || 0,
+        reps: routineEx?.targetReps || exerciseDef?.defaultReps || 0,
+        timeSeconds: routineEx?.targetTimeSeconds || exerciseDef?.defaultTimeSeconds || 0,
+        completed: true
+      }];
+      return { exerciseId: ex.exerciseId, sets };
+    });
 
     const newLog: WorkoutLog = {
       id: Date.now().toString(),
@@ -381,14 +397,15 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
       startTime: now.toISOString(),
       endTime: now.toISOString(),
       durationSeconds: 0,
-      routineName: 'Serbest Antrenman',
-      category: 'Diğer',
-      exercises: [],
+      routineName: routine.name,
+      category: routine.category,
+      exercises: exerciseLogs,
       notes: '',
       media: []
     };
 
     onSaveLog(newLog);
+    alert(`"${routine.name}" kayıt defterine eklendi!`);
   };
 
   // Quick Save for Routines with selected exercises
@@ -452,12 +469,10 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                if (confirm('Boş bir serbest antrenman kaydı oluşturulacak. Onaylıyor musunuz?')) {
-                  quickSaveFreeWorkout();
-                }
+                openFreeWorkoutModal();
               }}
               className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center hover:bg-white/30 transition-colors"
-              title="Direkt Kaydet"
+              title="Egzersiz Seç ve Kaydet"
             >
               <Save size={20} />
             </button>
@@ -505,7 +520,9 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      openQuickSaveModal(routine);
+                      if (confirm(`"${routine.name}" antrenmanını kayıt defterine eklemek istiyor musunuz?`)) {
+                        quickSaveRoutineDirectly(routine);
+                      }
                     }}
                     className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center text-green-600 hover:bg-green-500 hover:text-white transition-all"
                     title="Direkt Kaydet"
@@ -530,15 +547,15 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
           )}
         </div>
 
-        {/* Quick Save Modal */}
-        {quickSaveModalOpen && quickSaveRoutine && (
+        {/* Quick Save Modal - Serbest Antrenman için */}
+        {quickSaveModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 animate-in fade-in duration-200">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col">
               {/* Modal Header */}
               <div className="p-5 border-b border-slate-200 flex justify-between items-center">
                 <div>
-                  <h3 className="font-bold text-lg text-slate-900">Direkt Kaydet</h3>
-                  <p className="text-sm text-slate-500">{quickSaveRoutine.name}</p>
+                  <h3 className="font-bold text-lg text-slate-900">Serbest Antrenman Kaydet</h3>
+                  <p className="text-sm text-slate-500">Egzersiz seçerek kaydet</p>
                 </div>
                 <button
                   onClick={() => {
@@ -556,15 +573,13 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
               <div className="flex-1 overflow-y-auto p-5">
                 <p className="text-sm text-slate-600 mb-4">Kaydetmek istediğiniz egzersizleri seçin:</p>
                 <div className="space-y-2">
-                  {quickSaveRoutine.exercises?.map((ex, idx) => {
-                    const exerciseDef = data.exercises.find(e => e.id === ex.exerciseId);
-                    if (!exerciseDef) return null;
-                    const isSelected = quickSaveSelectedExercises.includes(ex.exerciseId);
+                  {data.exercises.map((exerciseDef, idx) => {
+                    const isSelected = quickSaveSelectedExercises.includes(exerciseDef.id);
 
                     return (
                       <button
                         key={idx}
-                        onClick={() => toggleQuickSaveExercise(ex.exerciseId)}
+                        onClick={() => toggleQuickSaveExercise(exerciseDef.id)}
                         className={`w-full p-3 rounded-xl flex items-center gap-3 transition-all text-left ${isSelected
                           ? 'bg-brand-50 border-2 border-brand-500'
                           : 'bg-slate-50 border-2 border-transparent hover:border-slate-300'
@@ -584,6 +599,7 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
                             {exerciseDef.defaultSets && `${exerciseDef.defaultSets} set`}
                             {exerciseDef.defaultReps && ` • ${exerciseDef.defaultReps} tekrar`}
                             {exerciseDef.defaultWeight && ` • ${exerciseDef.defaultWeight}kg`}
+                            {exerciseDef.trackingType === 'time' && exerciseDef.defaultTimeSeconds && ` • ${Math.floor(exerciseDef.defaultTimeSeconds / 60)}dk`}
                           </span>
                         </div>
                       </button>
@@ -591,21 +607,30 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
                   })}
                 </div>
 
+                {data.exercises.length === 0 && (
+                  <div className="text-center py-8 text-slate-400">
+                    <p>Henüz egzersiz tanımlı değil.</p>
+                    <p className="text-sm">Antrenman Merkezi'nden egzersiz ekleyin.</p>
+                  </div>
+                )}
+
                 {/* Select All / Deselect All */}
-                <div className="mt-4 flex gap-2">
-                  <button
-                    onClick={() => setQuickSaveSelectedExercises(quickSaveRoutine.exercises?.map(ex => ex.exerciseId) || [])}
-                    className="flex-1 py-2 px-3 text-sm text-brand-600 bg-brand-50 rounded-lg hover:bg-brand-100 transition-colors"
-                  >
-                    Tümünü Seç
-                  </button>
-                  <button
-                    onClick={() => setQuickSaveSelectedExercises([])}
-                    className="flex-1 py-2 px-3 text-sm text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
-                  >
-                    Seçimi Temizle
-                  </button>
-                </div>
+                {data.exercises.length > 0 && (
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      onClick={() => setQuickSaveSelectedExercises(data.exercises.map(ex => ex.id))}
+                      className="flex-1 py-2 px-3 text-sm text-brand-600 bg-brand-50 rounded-lg hover:bg-brand-100 transition-colors"
+                    >
+                      Tümünü Seç
+                    </button>
+                    <button
+                      onClick={() => setQuickSaveSelectedExercises([])}
+                      className="flex-1 py-2 px-3 text-sm text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                    >
+                      Seçimi Temizle
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Modal Footer */}
