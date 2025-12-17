@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { AppData, Equipment, Exercise, Routine, RoutineCategory, TrackingType, RoutineExercise } from '../types';
 import { Button } from '../components/Button';
-import { Plus, Trash2, Image as ImageIcon, Video, X, Camera, Clock, CheckSquare, Dumbbell, ChevronDown, ChevronUp, Target, Pencil } from 'lucide-react';
+import { Plus, Trash2, Image as ImageIcon, Video, X, Camera, Clock, CheckSquare, Dumbbell, ChevronDown, ChevronUp, Target, Pencil, Package } from 'lucide-react';
 import { MediaButtons } from './ActiveWorkout';
 
 interface TrainingCenterProps {
@@ -14,6 +14,8 @@ type TabType = 'equipment' | 'exercises' | 'routines';
 export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpdateData }) => {
   const [activeTab, setActiveTab] = useState<TabType>('equipment');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(null);
+  const [expandedRoutineId, setExpandedRoutineId] = useState<string | null>(null);
 
   // Editing State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -389,84 +391,208 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
           </div>
         ))}
 
-        {activeTab === 'exercises' && data.exercises.map(item => (
-          <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col relative">
-            <div className="flex justify-between items-start mb-2">
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-slate-900">{item.name}</h3>
-                {item.media && <MediaButtons media={[item.media]} />}
-              </div>
-              <div className="flex items-center gap-3">
-                <button onClick={() => handleEditItem(item)} className="text-slate-300 hover:text-brand-600" title="Düzenle">
-                  <Pencil size={16} />
-                </button>
-                <button onClick={() => deleteItem(item.id, 'exercises')} className="text-slate-300 hover:text-red-500" title="Sil">
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-slate-500 mb-2">
-              <span className="flex items-center gap-1">{getTrackingIcon(item.trackingType || 'weight_reps')} {getTrackingLabel(item.trackingType || 'weight_reps')}</span>
-              {item.defaultSets && (
-                <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 border border-slate-200">
-                  {item.defaultSets} set
-                </span>
-              )}
-            </div>
-            <p className="text-sm text-slate-500 mb-2">{item.description}</p>
-            <div className="flex flex-wrap gap-2">
-              {item.equipmentIds.map(eqId => {
-                const eq = data.equipment.find(e => e.id === eqId);
-                if (!eq) return null;
-                return (
-                  <span key={eqId} className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-700 font-medium">
-                    <span>{eq.name}</span>
-                    {eq.image && (
-                      <div className="shrink-0 border-l border-slate-200 pl-1.5">
-                        <MediaButtons media={[eq.image]} compact={true} />
-                      </div>
-                    )}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-
-        {activeTab === 'routines' && data.routines.map(item => (
-          <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 relative">
-            <div className="flex justify-between items-start mb-2">
-              <div>
-                <h3 className="font-bold text-slate-900">{item.name}</h3>
-                <span className="text-xs font-semibold text-brand-600 bg-brand-50 px-2 py-0.5 rounded mt-1 inline-block">{item.category}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <button onClick={() => handleEditItem(item)} className="text-slate-300 hover:text-brand-600" title="Düzenle">
-                  <Pencil size={16} />
-                </button>
-                <button onClick={() => deleteItem(item.id, 'routines')} className="text-slate-300 hover:text-red-500" title="Sil">
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-            {/* Expanded routine details */}
-            <div className="mt-2 space-y-1">
-              {item.exercises.slice(0, 3).map((ex, i) => {
-                const def = data.exercises.find(e => e.id === ex.exerciseId);
-                return (
-                  <div key={i} className="text-xs text-slate-600 flex justify-between">
-                    <span>• {def?.name || 'Silinmiş Egzersiz'}</span>
-                    <span className="text-slate-400">
-                      {ex.targetSets} set
-                      {def?.trackingType === 'time' ? ` / ${ex.targetTimeSeconds}sn` : ` x ${ex.targetReps}`}
+        {activeTab === 'exercises' && data.exercises.map(item => {
+          const isExpanded = expandedExerciseId === item.id;
+          return (
+            <div key={item.id} className={`bg-white rounded-xl shadow-sm border overflow-hidden transition-all ${isExpanded ? 'border-brand-200 ring-1 ring-brand-100' : 'border-slate-100'}`}>
+              {/* Sade Header - Toggle */}
+              <div
+                onClick={() => setExpandedExerciseId(isExpanded ? null : item.id)}
+                className="p-4 cursor-pointer flex items-center justify-between hover:bg-slate-50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`p-1.5 rounded-lg transition-transform duration-200 ${isExpanded ? 'rotate-90 bg-brand-100' : 'bg-slate-100'}`}>
+                    <ChevronDown size={16} className={`text-slate-500 transition-transform ${isExpanded ? 'rotate-[-90deg]' : ''}`} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                      {item.name}
+                      {item.media && <MediaButtons media={[item.media]} compact />}
+                    </h3>
+                    <span className="text-xs text-slate-500 flex items-center gap-1">
+                      {getTrackingIcon(item.trackingType || 'weight_reps')} {getTrackingLabel(item.trackingType || 'weight_reps')}
                     </span>
                   </div>
-                )
-              })}
-              {item.exercises.length > 3 && <div className="text-xs text-slate-400 italic">...ve {item.exercises.length - 3} daha</div>}
+                </div>
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => handleEditItem(item)} className="p-1.5 text-slate-300 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors" title="Düzenle">
+                    <Pencil size={16} />
+                  </button>
+                  <button onClick={() => deleteItem(item.id, 'exercises')} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Sil">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Genişletilmiş Detaylar */}
+              {isExpanded && (
+                <div className="px-4 pb-4 border-t border-slate-100 bg-slate-50/50 animate-in slide-in-from-top-1 duration-150">
+                  {/* Hedefler */}
+                  <div className="flex flex-wrap gap-2 mt-3 mb-3">
+                    {item.defaultSets && (
+                      <span className="bg-brand-50 px-2.5 py-1 rounded-full text-brand-700 border border-brand-100 font-medium text-xs">
+                        {item.defaultSets} set
+                      </span>
+                    )}
+                    {item.trackingType === 'weight_reps' && item.defaultReps && (
+                      <span className="bg-blue-50 px-2.5 py-1 rounded-full text-blue-700 border border-blue-100 font-medium text-xs">
+                        {item.defaultReps} tekrar
+                      </span>
+                    )}
+                    {item.defaultWeight && (
+                      <span className="bg-purple-50 px-2.5 py-1 rounded-full text-purple-700 border border-purple-100 font-medium text-xs">
+                        {item.defaultWeight} kg
+                      </span>
+                    )}
+                    {item.trackingType === 'time' && item.defaultTimeSeconds && (
+                      <span className="bg-amber-50 px-2.5 py-1 rounded-full text-amber-700 border border-amber-100 font-medium text-xs">
+                        {Math.floor(item.defaultTimeSeconds / 60) > 0 ? `${Math.floor(item.defaultTimeSeconds / 60)} dk ` : ''}{item.defaultTimeSeconds % 60 > 0 ? `${item.defaultTimeSeconds % 60} sn` : ''}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Açıklama */}
+                  {item.description && (
+                    <p className="text-sm text-slate-600 mb-3 italic">{item.description}</p>
+                  )}
+
+                  {/* Ekipmanlar */}
+                  {item.equipmentIds.length > 0 && (
+                    <div className="pt-2 border-t border-slate-200">
+                      <p className="text-xs font-medium text-slate-500 mb-2">Ekipmanlar:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {item.equipmentIds.map(eqId => {
+                          const eq = data.equipment.find(e => e.id === eqId);
+                          if (!eq) return null;
+                          return (
+                            <span key={eqId} className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-700 font-medium shadow-sm">
+                              <span>{eq.name}</span>
+                              {eq.image && (
+                                <div className="shrink-0 border-l border-slate-200 pl-1.5">
+                                  <MediaButtons media={[eq.image]} compact={true} />
+                                </div>
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
+
+        {activeTab === 'routines' && data.routines.map(item => {
+          const isExpanded = expandedRoutineId === item.id;
+          return (
+            <div key={item.id} className={`bg-white rounded-xl shadow-sm border overflow-hidden transition-all ${isExpanded ? 'border-brand-200 ring-1 ring-brand-100' : 'border-slate-100'}`}>
+              {/* Sade Header - Toggle */}
+              <div
+                onClick={() => setExpandedRoutineId(isExpanded ? null : item.id)}
+                className="p-4 cursor-pointer flex items-center justify-between hover:bg-slate-50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`p-1.5 rounded-lg transition-transform duration-200 ${isExpanded ? 'rotate-90 bg-brand-100' : 'bg-slate-100'}`}>
+                    <ChevronDown size={16} className={`text-slate-500 transition-transform ${isExpanded ? 'rotate-[-90deg]' : ''}`} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                      {item.name}
+                      <span className="text-xs font-medium bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full">{item.category}</span>
+                    </h3>
+                    <span className="text-xs text-slate-500">{item.exercises.length} egzersiz</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => handleEditItem(item)} className="p-1.5 text-slate-300 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors" title="Düzenle">
+                    <Pencil size={16} />
+                  </button>
+                  <button onClick={() => deleteItem(item.id, 'routines')} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Sil">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Genişletilmiş Detaylar */}
+              {isExpanded && (
+                <div className="px-4 pb-4 border-t border-slate-100 bg-slate-50/50 animate-in slide-in-from-top-1 duration-150">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-3 mb-2">Egzersiz Listesi</p>
+                  <div className="space-y-2">
+                    {item.exercises.map((ex, i) => {
+                      const def = data.exercises.find(e => e.id === ex.exerciseId);
+                      const formatTime = (seconds?: number) => {
+                        if (!seconds) return '';
+                        const mins = Math.floor(seconds / 60);
+                        const secs = seconds % 60;
+                        if (mins === 0) return `${secs} sn`;
+                        if (secs === 0) return `${mins} dk`;
+                        return `${mins} dk ${secs} sn`;
+                      };
+                      const equipments = def?.equipmentIds
+                        ?.map(eqId => data.equipment.find(eq => eq.id === eqId))
+                        .filter(Boolean) || [];
+                      return (
+                        <div key={i} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              {def?.media && <MediaButtons media={[def.media]} compact />}
+                              <span className="font-medium text-slate-800">{def?.name || 'Silinmiş Egzersiz'}</span>
+                            </div>
+                            <span className="text-xs text-slate-400 flex items-center gap-1">
+                              {getTrackingIcon(def?.trackingType || 'weight_reps')}
+                            </span>
+                          </div>
+                          {/* Detaylı Hedefler */}
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {ex.targetSets && (
+                              <span className="text-[10px] px-2 py-0.5 bg-brand-50 text-brand-700 rounded-full font-medium">
+                                {ex.targetSets} set
+                              </span>
+                            )}
+                            {def?.trackingType === 'weight_reps' && ex.targetReps && (
+                              <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full font-medium">
+                                {ex.targetReps} tekrar
+                              </span>
+                            )}
+                            {ex.targetWeight && (
+                              <span className="text-[10px] px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full font-medium">
+                                {ex.targetWeight} kg
+                              </span>
+                            )}
+                            {def?.trackingType === 'time' && ex.targetTimeSeconds && (
+                              <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full font-medium">
+                                {formatTime(ex.targetTimeSeconds)}
+                              </span>
+                            )}
+                          </div>
+                          {/* Ekipmanlar */}
+                          {equipments.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-slate-100">
+                              <div className="flex items-center gap-1 text-[10px] text-slate-500 mb-1">
+                                <Package size={10} />
+                                <span className="font-medium">Ekipmanlar:</span>
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {equipments.map((eq: any) => (
+                                  <span key={eq.id} className="inline-flex items-center gap-1 text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                                    {eq.name}
+                                    {eq.image && <MediaButtons media={[eq.image]} compact />}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {isModalOpen && (
