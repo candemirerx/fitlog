@@ -250,7 +250,7 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
     if (routine && routine.exercises) {
       exercises = routine.exercises.map(ex => ({
         exerciseId: ex.exerciseId,
-        completed: false,
+        completed: true, // Egzersiz seçildiğinde otomatik tamamlandı sayılıyor
         note: ''
       }));
     }
@@ -288,7 +288,7 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
   };
 
   const addExerciseToSession = (exerciseId: string) => {
-    setSessionExercises(prev => [...prev, { exerciseId, completed: false, note: '' }]);
+    setSessionExercises(prev => [...prev, { exerciseId, completed: true, note: '' }]); // Egzersiz seçildiğinde otomatik tamamlandı
   };
 
   const removeExerciseFromSession = (idx: number) => {
