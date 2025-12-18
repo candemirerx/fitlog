@@ -4,8 +4,10 @@ import { Button } from '../components/Button';
 import {
   Check, Play, Save, Clock, AlertCircle, Camera, Video,
   Image as ImageIcon, X, Trash2, ChevronDown, Filter,
-  MessageSquare, Timer, Dumbbell, RotateCcw, ChevronRight, Pencil
+  MessageSquare, Timer, Dumbbell, RotateCcw, ChevronRight, Pencil, Loader2
 } from 'lucide-react';
+import { auth } from '../firebase';
+import { processAndUploadVideo, isVideoSource, isStorageUrl } from '../utils/videoUtils';
 
 // Media Viewer Component
 export const MediaButtons: React.FC<{ media?: string[], compact?: boolean }> = ({ media, compact = false }) => {
@@ -15,7 +17,7 @@ export const MediaButtons: React.FC<{ media?: string[], compact?: boolean }> = (
   const validMedia = media.filter((m): m is string => !!m);
   if (validMedia.length === 0) return null;
 
-  const isVideo = (src: string) => src.startsWith('data:video') || src.endsWith('.mp4') || src.endsWith('.mov');
+  const isVideo = (src: string) => isVideoSource(src);
   const buttonSizeClass = compact ? "w-5 h-5 rounded-md" : "w-6 h-6 rounded";
   const iconSize = compact ? 10 : 12;
 
@@ -100,6 +102,9 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
   const [quickSaveModalOpen, setQuickSaveModalOpen] = useState(false);
   const [quickSaveRoutine, setQuickSaveRoutine] = useState<Routine | null>(null);
   const [quickSaveSelectedExercises, setQuickSaveSelectedExercises] = useState<string[]>([]);
+
+  // Video Upload Progress
+  const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
 
   // File Inputs
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -223,16 +228,29 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
           const compressed = await resizeImage(file);
           setSessionMedia(prev => [...prev, compressed]);
         } else if (file.type.startsWith('video/')) {
-          if (file.size > 15 * 1024 * 1024) {
-            alert("Video 15MB'dan küçük olmalı.");
+          // Check file size limit (100MB max before compression)
+          if (file.size > 100 * 1024 * 1024) {
+            alert("Video 100MB'dan küçük olmalı.");
             return;
           }
-          const reader = new FileReader();
-          reader.onloadend = () => setSessionMedia(prev => [...prev, reader.result as string]);
-          reader.readAsDataURL(file);
+
+          // Use Firebase Storage for videos
+          const userId = auth.currentUser?.uid || 'anonymous';
+          setVideoUploadProgress(0);
+
+          try {
+            const videoUrl = await processAndUploadVideo(file, userId, (progress) => {
+              setVideoUploadProgress(progress);
+            });
+            setSessionMedia(prev => [...prev, videoUrl]);
+          } finally {
+            setVideoUploadProgress(null);
+          }
         }
-      } catch {
-        alert("Medya işlenirken hata oluştu.");
+      } catch (error: any) {
+        console.error('Media upload error:', error);
+        alert("Medya işlenirken hata oluştu: " + (error.message || 'Bilinmeyen hata'));
+        setVideoUploadProgress(null);
       }
     }
     e.target.value = '';
@@ -650,7 +668,7 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
   }
 
   // ACTIVE WORKOUT SCREEN
-  const isVideo = (src: string) => src.startsWith('data:video') || src.endsWith('.mp4');
+  const isVideo = (src: string) => isVideoSource(src);
   const completedCount = sessionExercises.filter(e => e.completed).length;
   const totalCount = sessionExercises.length;
 
@@ -996,15 +1014,35 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
           <input type="file" ref={videoInputRef} onChange={handleMediaUpload} accept="video/*" capture="environment" className="hidden" />
           <input type="file" ref={galleryInputRef} onChange={handleMediaUpload} accept="image/*,video/*" className="hidden" />
 
-          <Button onClick={() => cameraInputRef.current?.click()} variant="secondary" size="sm" className="flex-1">
-            <Camera size={16} className="mr-1" /> Fotoğraf
-          </Button>
-          <Button onClick={() => videoInputRef.current?.click()} variant="secondary" size="sm" className="flex-1">
-            <Video size={16} className="mr-1" /> Video
-          </Button>
-          <Button onClick={() => galleryInputRef.current?.click()} variant="secondary" size="sm" className="flex-1">
-            <ImageIcon size={16} className="mr-1" /> Galeri
-          </Button>
+          {videoUploadProgress !== null ? (
+            <div className="flex-1 flex flex-col items-center justify-center py-2 bg-brand-50 rounded-xl border border-brand-200">
+              <div className="flex items-center gap-2 text-brand-600 mb-2">
+                <Loader2 size={16} className="animate-spin" />
+                <span className="text-sm font-medium">
+                  {videoUploadProgress < 50 ? 'Video sıkıştırılıyor...' : 'Yükleniyor...'}
+                </span>
+              </div>
+              <div className="w-full max-w-[200px] h-2 bg-brand-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-brand-500 transition-all duration-300"
+                  style={{ width: `${videoUploadProgress}%` }}
+                />
+              </div>
+              <span className="text-xs text-brand-500 mt-1">{Math.round(videoUploadProgress)}%</span>
+            </div>
+          ) : (
+            <>
+              <Button onClick={() => cameraInputRef.current?.click()} variant="secondary" size="sm" className="flex-1">
+                <Camera size={16} className="mr-1" /> Fotoğraf
+              </Button>
+              <Button onClick={() => videoInputRef.current?.click()} variant="secondary" size="sm" className="flex-1">
+                <Video size={16} className="mr-1" /> Video
+              </Button>
+              <Button onClick={() => galleryInputRef.current?.click()} variant="secondary" size="sm" className="flex-1">
+                <ImageIcon size={16} className="mr-1" /> Galeri
+              </Button>
+            </>
+          )}
         </div>
       </div>
 

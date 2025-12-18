@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { AppData, Equipment, Exercise, Routine, RoutineCategory, TrackingType, RoutineExercise } from '../types';
 import { Button } from '../components/Button';
-import { Plus, Trash2, Image as ImageIcon, Video, X, Camera, Clock, CheckSquare, Dumbbell, ChevronDown, ChevronUp, Target, Pencil, Package, Search, Check } from 'lucide-react';
+import { Plus, Trash2, Image as ImageIcon, Video, X, Camera, Clock, CheckSquare, Dumbbell, ChevronDown, ChevronUp, Target, Pencil, Package, Search, Check, Loader2 } from 'lucide-react';
 import { MediaButtons } from './ActiveWorkout';
+import { auth } from '../firebase';
+import { processAndUploadVideo, isVideoSource } from '../utils/videoUtils';
 
 interface TrainingCenterProps {
   data: AppData;
@@ -54,6 +56,9 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
   const [pickerSelectedIds, setPickerSelectedIds] = useState<string[]>([]);
   const [exerciseSearchQuery, setExerciseSearchQuery] = useState('');
 
+  // Video Upload Progress
+  const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
+
   const resizeImage = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -91,19 +96,29 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
           const compressedImage = await resizeImage(file);
           setNewItemMedia(compressedImage);
         } else if (file.type.startsWith('video/')) {
-          if (file.size > 15 * 1024 * 1024) {
-            alert("Video çok büyük.");
+          // Check file size limit (100MB max before compression)
+          if (file.size > 100 * 1024 * 1024) {
+            alert("Video 100MB'dan küçük olmalı.");
             return;
           }
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            setNewItemMedia(reader.result as string);
-          };
-          reader.readAsDataURL(file);
+
+          // Use Firebase Storage for videos
+          const userId = auth.currentUser?.uid || 'anonymous';
+          setVideoUploadProgress(0);
+
+          try {
+            const videoUrl = await processAndUploadVideo(file, userId, (progress) => {
+              setVideoUploadProgress(progress);
+            });
+            setNewItemMedia(videoUrl);
+          } finally {
+            setVideoUploadProgress(null);
+          }
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Media processing failed", error);
-        alert("Dosya işlenirken bir hata oluştu.");
+        alert("Dosya işlenirken bir hata oluştu: " + (error.message || 'Bilinmeyen hata'));
+        setVideoUploadProgress(null);
       }
     }
   };
@@ -224,7 +239,7 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
     setSelectedRoutineExercises(prev => prev.filter(e => e.exerciseId !== exId));
   };
 
-  const isVideo = (source: string) => source.startsWith('data:video') || source.endsWith('.mp4') || source.endsWith('.mov');
+  const isVideo = (source: string) => isVideoSource(source);
 
   const getTrackingIcon = (type: TrackingType) => {
     switch (type) {
@@ -597,6 +612,22 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                     <div className="relative h-48 bg-black/5 rounded-lg overflow-hidden border border-slate-200 group flex items-center justify-center">
                       {isVideo(newItemMedia) ? <video src={newItemMedia} controls className="w-full h-full object-contain" /> : <img src={newItemMedia} className="w-full h-full object-contain" />}
                       <button onClick={() => setNewItemMedia('')} className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full shadow-sm hover:bg-red-600 transition-colors z-10"><X size={16} /></button>
+                    </div>
+                  ) : videoUploadProgress !== null ? (
+                    <div className="h-48 bg-brand-50 rounded-lg border border-brand-200 flex flex-col items-center justify-center">
+                      <div className="flex items-center gap-2 text-brand-600 mb-3">
+                        <Loader2 size={24} className="animate-spin" />
+                        <span className="text-sm font-medium">
+                          {videoUploadProgress < 50 ? 'Video sıkıştırılıyor...' : 'Yükleniyor...'}
+                        </span>
+                      </div>
+                      <div className="w-48 h-2 bg-brand-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-brand-500 transition-all duration-300"
+                          style={{ width: `${videoUploadProgress}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-brand-500 mt-2">{Math.round(videoUploadProgress)}%</span>
                     </div>
                   ) : (
                     <div className="grid grid-cols-3 gap-2">
