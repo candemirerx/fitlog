@@ -308,7 +308,6 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
   };
 
   const finishWorkout = () => {
-    if (!confirm('Antrenmanı kaydetmek istediğinize emin misiniz?')) return;
 
     const safeStartTime = startTime || new Date();
     const endTime = new Date();
@@ -405,7 +404,6 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
     };
 
     onSaveLog(newLog);
-    alert(`"${routine.name}" kayıt defterine eklendi!`);
   };
 
   // Quick Save for Routines with selected exercises
@@ -520,9 +518,7 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (confirm(`"${routine.name}" antrenmanını kayıt defterine eklemek istiyor musunuz?`)) {
-                        quickSaveRoutineDirectly(routine);
-                      }
+                      quickSaveRoutineDirectly(routine);
                     }}
                     className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center text-green-600 hover:bg-green-500 hover:text-white transition-all"
                     title="Direkt Kaydet"

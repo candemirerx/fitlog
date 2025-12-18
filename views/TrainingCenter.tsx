@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { AppData, Equipment, Exercise, Routine, RoutineCategory, TrackingType, RoutineExercise } from '../types';
 import { Button } from '../components/Button';
-import { Plus, Trash2, Image as ImageIcon, Video, X, Camera, Clock, CheckSquare, Dumbbell, ChevronDown, ChevronUp, Target, Pencil, Package } from 'lucide-react';
+import { Plus, Trash2, Image as ImageIcon, Video, X, Camera, Clock, CheckSquare, Dumbbell, ChevronDown, ChevronUp, Target, Pencil, Package, Search, Check } from 'lucide-react';
 import { MediaButtons } from './ActiveWorkout';
 
 interface TrainingCenterProps {
@@ -48,6 +48,11 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
   const [tempTargetReps, setTempTargetReps] = useState<number>(10);
   const [tempTargetTime, setTempTargetTime] = useState<number>(60);
   const [tempTargetWeight, setTempTargetWeight] = useState<number | undefined>(undefined);
+
+  // Full-screen exercise picker state
+  const [isExercisePickerOpen, setIsExercisePickerOpen] = useState(false);
+  const [pickerSelectedIds, setPickerSelectedIds] = useState<string[]>([]);
+  const [exerciseSearchQuery, setExerciseSearchQuery] = useState('');
 
   const resizeImage = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -215,34 +220,6 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
     setIsModalOpen(false);
   };
 
-  const addExerciseToRoutine = () => {
-    if (!tempExerciseId) return;
-
-    // Check if exists
-    if (selectedRoutineExercises.find(re => re.exerciseId === tempExerciseId)) {
-      alert("Bu egzersiz zaten listede.");
-      return;
-    }
-
-    const exDef = data.exercises.find(e => e.id === tempExerciseId);
-
-    const newRoutineExercise: RoutineExercise = {
-      exerciseId: tempExerciseId,
-      targetSets: tempTargetSets,
-      targetReps: exDef?.trackingType === 'weight_reps' ? tempTargetReps : undefined,
-      targetTimeSeconds: exDef?.trackingType === 'time' ? tempTargetTime : undefined,
-      targetWeight: tempTargetWeight
-    };
-
-    setSelectedRoutineExercises([...selectedRoutineExercises, newRoutineExercise]);
-    setTempExerciseId('');
-    // Reset defaults
-    setTempTargetSets(3);
-    setTempTargetReps(10);
-    setTempTargetTime(60);
-    setTempTargetWeight(undefined);
-  };
-
   const removeExerciseFromRoutine = (exId: string) => {
     setSelectedRoutineExercises(prev => prev.filter(e => e.exerciseId !== exId));
   };
@@ -263,84 +240,6 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
       case 'completion': return 'Tamamlama';
       default: return 'Ağırlık & Tekrar';
     }
-  };
-
-  // Helper to render current adding exercise input
-  const renderExerciseInputs = () => {
-    if (!tempExerciseId) return null;
-    const exDef = data.exercises.find(e => e.id === tempExerciseId);
-    if (!exDef) return null;
-
-    return (
-      <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mt-2 space-y-2 animate-in fade-in slide-in-from-top-1">
-        <div className="flex gap-2 items-center text-sm font-bold text-slate-700 pb-1 border-b border-slate-200">
-          {getTrackingIcon(exDef.trackingType)}
-          <span>Hedefler</span>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-slate-500 block mb-1">Set Sayısı</label>
-            <input type="number" min="1" value={tempTargetSets} onChange={e => setTempTargetSets(parseInt(e.target.value) || 1)} className="w-full p-2 border border-slate-200 rounded bg-white text-sm" />
-          </div>
-
-          {exDef.trackingType === 'weight_reps' && (
-            <>
-              <div>
-                <label className="text-xs text-slate-500 block mb-1">Hedef Tekrar</label>
-                <input type="number" value={tempTargetReps} onChange={e => setTempTargetReps(parseInt(e.target.value) || 0)} className="w-full p-2 border border-slate-200 rounded bg-white text-sm" />
-              </div>
-              <div className="col-span-2">
-                <label className="text-xs text-slate-500 block mb-1">Hedef Ağırlık (Opsiyonel)</label>
-                <div className="flex items-center">
-                  <input type="number" value={tempTargetWeight || ''} onChange={e => setTempTargetWeight(e.target.value ? parseFloat(e.target.value) : undefined)} className="w-full p-2 border border-slate-200 rounded-l bg-white text-sm" placeholder="Boş bırakılabilir" />
-                  <span className="bg-slate-100 border border-l-0 border-slate-200 p-2 text-sm text-slate-500 rounded-r">kg</span>
-                </div>
-              </div>
-            </>
-          )}
-
-          {exDef.trackingType === 'time' && (
-            <div className="col-span-2">
-              <label className="text-xs text-slate-500 block mb-1">Süre</label>
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <input
-                    type="number"
-                    min="0"
-                    value={Math.floor(tempTargetTime / 60)}
-                    onChange={e => {
-                      const mins = parseInt(e.target.value) || 0;
-                      const currentSecs = tempTargetTime % 60;
-                      setTempTargetTime(mins * 60 + currentSecs);
-                    }}
-                    className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
-                  />
-                  <span className="text-xs text-slate-400 mt-0.5 block">dakika</span>
-                </div>
-                <div className="flex-1">
-                  <input
-                    type="number"
-                    min="0"
-                    max="59"
-                    value={tempTargetTime % 60}
-                    onChange={e => {
-                      const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
-                      const currentMins = Math.floor(tempTargetTime / 60);
-                      setTempTargetTime(currentMins * 60 + secs);
-                    }}
-                    className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
-                  />
-                  <span className="text-xs text-slate-400 mt-0.5 block">saniye</span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <Button onClick={addExerciseToRoutine} size="sm" fullWidth className="mt-2">Listeye Ekle</Button>
-      </div>
-    );
   };
 
   return (
@@ -745,6 +644,96 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                     <div className="space-y-2 mb-3">
                       {selectedRoutineExercises.map((re, idx) => {
                         const def = data.exercises.find(e => e.id === re.exerciseId);
+                        const isEditingThisExercise = tempExerciseId === re.exerciseId;
+
+                        if (isEditingThisExercise) {
+                          // Düzenleme modu
+                          return (
+                            <div key={idx} className="bg-slate-100 p-3 rounded-lg border border-slate-300 space-y-2">
+                              <div className="flex justify-between items-center">
+                                <span className="font-bold text-slate-800 text-sm">{def?.name}</span>
+                                <button
+                                  onClick={() => setTempExerciseId('')}
+                                  className="text-slate-400 hover:text-slate-600 p-1"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-xs text-slate-500 block mb-1">Set</label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={tempTargetSets}
+                                    onChange={e => setTempTargetSets(parseInt(e.target.value) || 1)}
+                                    className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                  />
+                                </div>
+
+                                {def?.trackingType === 'weight_reps' && (
+                                  <>
+                                    <div>
+                                      <label className="text-xs text-slate-500 block mb-1">Tekrar</label>
+                                      <input
+                                        type="number"
+                                        value={tempTargetReps}
+                                        onChange={e => setTempTargetReps(parseInt(e.target.value) || 0)}
+                                        className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                      />
+                                    </div>
+                                    <div className="col-span-2">
+                                      <label className="text-xs text-slate-500 block mb-1">Ağırlık (kg)</label>
+                                      <input
+                                        type="number"
+                                        value={tempTargetWeight || ''}
+                                        onChange={e => setTempTargetWeight(e.target.value ? parseFloat(e.target.value) : undefined)}
+                                        className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                        placeholder="Opsiyonel"
+                                      />
+                                    </div>
+                                  </>
+                                )}
+
+                                {def?.trackingType === 'time' && (
+                                  <div className="col-span-2">
+                                    <label className="text-xs text-slate-500 block mb-1">Süre (saniye)</label>
+                                    <input
+                                      type="number"
+                                      value={tempTargetTime}
+                                      onChange={e => setTempTargetTime(parseInt(e.target.value) || 0)}
+                                      className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+
+                              <Button
+                                size="sm"
+                                fullWidth
+                                onClick={() => {
+                                  // Güncelle
+                                  setSelectedRoutineExercises(prev => prev.map(item =>
+                                    item.exerciseId === re.exerciseId
+                                      ? {
+                                        ...item,
+                                        targetSets: tempTargetSets,
+                                        targetReps: def?.trackingType === 'weight_reps' ? tempTargetReps : undefined,
+                                        targetTimeSeconds: def?.trackingType === 'time' ? tempTargetTime : undefined,
+                                        targetWeight: tempTargetWeight
+                                      }
+                                      : item
+                                  ));
+                                  setTempExerciseId('');
+                                }}
+                              >
+                                Kaydet
+                              </Button>
+                            </div>
+                          );
+                        }
+
                         return (
                           <div key={idx} className="flex justify-between items-center bg-brand-50 p-2 rounded-lg border border-brand-100">
                             <div className="text-sm">
@@ -754,28 +743,204 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                                 {re.targetWeight ? ` @ ${re.targetWeight}kg` : ''}
                               </div>
                             </div>
-                            <button onClick={() => removeExerciseFromRoutine(re.exerciseId)} className="text-red-400 p-1 hover:text-red-600"><X size={14} /></button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => {
+                                  // Düzenleme moduna geç, mevcut değerleri yükle
+                                  setTempExerciseId(re.exerciseId);
+                                  setTempTargetSets(re.targetSets);
+                                  setTempTargetReps(re.targetReps || 10);
+                                  setTempTargetTime(re.targetTimeSeconds || 60);
+                                  setTempTargetWeight(re.targetWeight);
+                                }}
+                                className="text-brand-400 p-1 hover:text-brand-600"
+                                title="Düzenle"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button onClick={() => removeExerciseFromRoutine(re.exerciseId)} className="text-red-400 p-1 hover:text-red-600" title="Sil">
+                                <X size={14} />
+                              </button>
+                            </div>
                           </div>
                         )
                       })}
                     </div>
 
-                    {/* Add Exercise Selector */}
-                    <div className="border border-slate-200 rounded-lg p-2 bg-slate-50">
-                      <select value={tempExerciseId} onChange={(e) => setTempExerciseId(e.target.value)} className="w-full p-2 text-sm border-slate-300 rounded mb-1">
-                        <option value="">+ Egzersiz Ekle</option>
-                        {data.exercises.filter(e => !selectedRoutineExercises.find(re => re.exerciseId === e.id)).map(e => (
-                          <option key={e.id} value={e.id}>{e.name}</option>
-                        ))}
-                      </select>
-
-                      {/* Detailed Inputs for Selected Exercise */}
-                      {renderExerciseInputs()}
-                    </div>
+                    {/* Add Exercise Button */}
+                    <button
+                      onClick={() => {
+                        setPickerSelectedIds([]);
+                        setExerciseSearchQuery('');
+                        setIsExercisePickerOpen(true);
+                      }}
+                      className="w-full p-3 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-brand-400 hover:text-brand-600 hover:bg-brand-50 transition-all flex items-center justify-center gap-2 font-medium"
+                    >
+                      <Plus size={18} />
+                      <span>Egzersiz Ekle</span>
+                    </button>
                   </div>
                 </>
               )}
               <Button onClick={handleSaveItem} fullWidth className="mt-4">{editingId ? 'Güncelle' : 'Kaydet'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full-screen Exercise Picker Modal */}
+      {isExercisePickerOpen && (
+        <div className="fixed inset-0 bg-white z-[60] flex flex-col animate-in slide-in-from-bottom duration-200">
+          {/* Header */}
+          <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+            <button
+              onClick={() => setIsExercisePickerOpen(false)}
+              className="p-2 -ml-2 text-slate-500 hover:text-slate-700"
+            >
+              <X size={24} />
+            </button>
+            <h2 className="text-lg font-bold text-slate-900">Egzersiz Seç</h2>
+            <div className="w-10" /> {/* Spacer for centering */}
+          </div>
+
+          {/* Search */}
+          <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
+            <div className="relative">
+              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={exerciseSearchQuery}
+                onChange={(e) => setExerciseSearchQuery(e.target.value)}
+                placeholder="Egzersiz ara..."
+                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          {/* Exercise Grid */}
+          <div className="flex-1 overflow-y-auto p-4">
+            {data.exercises.length === 0 ? (
+              <div className="text-center py-12 text-slate-500">
+                <Dumbbell size={48} className="mx-auto mb-3 text-slate-300" />
+                <p className="font-medium">Henüz egzersiz eklenmemiş</p>
+                <p className="text-sm mt-1">Önce "Egzersizler" sekmesinden egzersiz ekleyin.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                {data.exercises
+                  .filter(ex => !selectedRoutineExercises.find(re => re.exerciseId === ex.id))
+                  .filter(ex => exerciseSearchQuery === '' || ex.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()))
+                  .map(exercise => {
+                    const isSelected = pickerSelectedIds.includes(exercise.id);
+                    return (
+                      <button
+                        key={exercise.id}
+                        onClick={() => {
+                          if (isSelected) {
+                            setPickerSelectedIds(prev => prev.filter(id => id !== exercise.id));
+                          } else {
+                            setPickerSelectedIds(prev => [...prev, exercise.id]);
+                          }
+                        }}
+                        className={`relative p-3 rounded-xl border-2 text-left transition-all ${isSelected
+                          ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-200'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                          }`}
+                      >
+                        {/* Selection indicator */}
+                        {isSelected && (
+                          <div className="absolute top-2 right-2 w-5 h-5 bg-brand-500 rounded-full flex items-center justify-center">
+                            <Check size={12} className="text-white" />
+                          </div>
+                        )}
+
+                        {/* Exercise info */}
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <h3 className={`font-bold text-sm ${isSelected ? 'text-brand-800' : 'text-slate-800'}`}>
+                            {exercise.name}
+                          </h3>
+                          {exercise.media && (
+                            <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                              <MediaButtons media={[exercise.media]} compact />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1 text-xs text-slate-500">
+                          {getTrackingIcon(exercise.trackingType || 'weight_reps')}
+                          <span>{getTrackingLabel(exercise.trackingType || 'weight_reps')}</span>
+                        </div>
+
+                        {/* Default targets preview */}
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {exercise.defaultSets && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
+                              {exercise.defaultSets} set
+                            </span>
+                          )}
+                          {exercise.trackingType === 'weight_reps' && exercise.defaultReps && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
+                              {exercise.defaultReps} tekrar
+                            </span>
+                          )}
+                          {exercise.trackingType === 'time' && exercise.defaultTimeSeconds && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
+                              {Math.floor(exercise.defaultTimeSeconds / 60) > 0 ? `${Math.floor(exercise.defaultTimeSeconds / 60)}dk ` : ''}{exercise.defaultTimeSeconds % 60 > 0 ? `${exercise.defaultTimeSeconds % 60}sn` : ''}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
+
+            {/* No results */}
+            {data.exercises.length > 0 &&
+              data.exercises
+                .filter(ex => !selectedRoutineExercises.find(re => re.exerciseId === ex.id))
+                .filter(ex => exerciseSearchQuery === '' || ex.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()))
+                .length === 0 && (
+                <div className="text-center py-12 text-slate-500">
+                  <Search size={48} className="mx-auto mb-3 text-slate-300" />
+                  <p className="font-medium">Sonuç bulunamadı</p>
+                  <p className="text-sm mt-1">Farklı bir arama terimi deneyin.</p>
+                </div>
+              )}
+          </div>
+
+          {/* Bottom action bar */}
+          <div className="border-t border-slate-200 bg-white px-4 py-3 safe-area-inset-bottom">
+            <div className="flex items-center gap-3">
+              <div className="flex-1 text-sm text-slate-600">
+                {pickerSelectedIds.length > 0 ? (
+                  <span className="font-medium text-brand-600">{pickerSelectedIds.length} egzersiz seçildi</span>
+                ) : (
+                  <span>Egzersiz seçin</span>
+                )}
+              </div>
+              <Button
+                onClick={() => {
+                  // Add all selected exercises with their default values
+                  const newExercises: RoutineExercise[] = pickerSelectedIds.map(id => {
+                    const exDef = data.exercises.find(e => e.id === id);
+                    return {
+                      exerciseId: id,
+                      targetSets: exDef?.defaultSets || 3,
+                      targetReps: exDef?.trackingType === 'weight_reps' ? (exDef?.defaultReps || 10) : undefined,
+                      targetTimeSeconds: exDef?.trackingType === 'time' ? (exDef?.defaultTimeSeconds || 60) : undefined,
+                      targetWeight: exDef?.defaultWeight
+                    };
+                  });
+                  setSelectedRoutineExercises(prev => [...prev, ...newExercises]);
+                  setIsExercisePickerOpen(false);
+                  setPickerSelectedIds([]);
+                }}
+                disabled={pickerSelectedIds.length === 0}
+                className="px-6"
+              >
+                Onayla ({pickerSelectedIds.length})
+              </Button>
             </div>
           </div>
         </div>
