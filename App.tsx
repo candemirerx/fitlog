@@ -311,7 +311,6 @@ function App() {
 
       // The onAuthStateChanged will handle the rest
       setCurrentView('logbook');
-      alert(`Hoşgeldin, ${email}!`);
     } catch (error: any) {
       console.error('Login error:', error);
       setIsLoaded(true);
@@ -344,7 +343,6 @@ function App() {
 
       // The onAuthStateChanged will handle the rest
       setCurrentView('logbook');
-      alert(`Hesap oluşturuldu: ${email}`);
     } catch (error: any) {
       console.error('Registration error:', error);
       setIsLoaded(true);
@@ -382,7 +380,6 @@ function App() {
 
       // The onAuthStateChanged will handle the rest
       setCurrentView('logbook');
-      alert(`Google ile giriş yapıldı: ${result.user.email}`);
     } catch (error: any) {
       console.error('Google login error:', error);
       setIsLoaded(true);
