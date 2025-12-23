@@ -613,7 +613,7 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
                             {exerciseDef.defaultSets && `${exerciseDef.defaultSets} set`}
                             {exerciseDef.defaultReps && ` • ${exerciseDef.defaultReps} tekrar`}
                             {exerciseDef.defaultWeight && ` • ${exerciseDef.defaultWeight}kg`}
-                            {exerciseDef.trackingType === 'time' && exerciseDef.defaultTimeSeconds && ` • ${Math.floor(exerciseDef.defaultTimeSeconds / 60)}dk`}
+                            {exerciseDef.defaultTimeSeconds && ` • ${Math.floor(exerciseDef.defaultTimeSeconds / 60)}dk`}
                           </span>
                         </div>
                       </button>
@@ -796,26 +796,26 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
                     {exerciseDef.name}
                   </h3>
 
-                  {/* Exercise Details - Show override values if present */}
+                  {/* Exercise Details - Show values dynamically */}
                   <div className="mt-1 flex flex-wrap gap-2 text-xs">
-                    {exerciseDef.trackingType === 'weight_reps' && (
-                      <>
-                        <span className={`px-2 py-0.5 rounded-full ${exSession.overrideSets !== undefined ? 'bg-brand-100 text-brand-800 font-semibold' : 'bg-brand-50 text-brand-700'}`}>
-                          {exSession.overrideSets ?? exerciseDef.defaultSets ?? 3} set
-                        </span>
-                        <span className={`px-2 py-0.5 rounded-full ${exSession.overrideReps !== undefined ? 'bg-blue-100 text-blue-800 font-semibold' : 'bg-blue-50 text-blue-700'}`}>
-                          {exSession.overrideReps ?? exerciseDef.defaultReps ?? 10} tekrar
-                        </span>
-                        {(exSession.overrideWeight !== undefined || exerciseDef.defaultWeight) && (
-                          <span className={`px-2 py-0.5 rounded-full ${exSession.overrideWeight !== undefined ? 'bg-purple-100 text-purple-800 font-semibold' : 'bg-purple-50 text-purple-700'}`}>
-                            {exSession.overrideWeight ?? exerciseDef.defaultWeight} kg
-                          </span>
-                        )}
-                      </>
+                    {(exSession.overrideSets !== undefined || exerciseDef.defaultSets) && (
+                      <span className={`px-2 py-0.5 rounded-full ${exSession.overrideSets !== undefined ? 'bg-brand-100 text-brand-800 font-semibold' : 'bg-brand-50 text-brand-700'}`}>
+                        {exSession.overrideSets ?? exerciseDef.defaultSets ?? 3} set
+                      </span>
                     )}
-                    {exerciseDef.trackingType === 'time' && (
+                    {(exSession.overrideReps !== undefined || exerciseDef.defaultReps) && (
+                      <span className={`px-2 py-0.5 rounded-full ${exSession.overrideReps !== undefined ? 'bg-blue-100 text-blue-800 font-semibold' : 'bg-blue-50 text-blue-700'}`}>
+                        {exSession.overrideReps ?? exerciseDef.defaultReps} tekrar
+                      </span>
+                    )}
+                    {(exSession.overrideWeight !== undefined || exerciseDef.defaultWeight) && (
+                      <span className={`px-2 py-0.5 rounded-full ${exSession.overrideWeight !== undefined ? 'bg-purple-100 text-purple-800 font-semibold' : 'bg-purple-50 text-purple-700'}`}>
+                        {exSession.overrideWeight ?? exerciseDef.defaultWeight} kg
+                      </span>
+                    )}
+                    {(exSession.overrideTimeSeconds !== undefined || exerciseDef.defaultTimeSeconds) && (
                       <span className={`px-2 py-0.5 rounded-full ${exSession.overrideTimeSeconds !== undefined ? 'bg-amber-100 text-amber-800 font-semibold' : 'bg-amber-50 text-amber-700'}`}>
-                        {formatTimeDetailed(exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 60)}
+                        {formatTimeDetailed(exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds)}
                       </span>
                     )}
                     {equipmentNames && (
@@ -871,77 +871,76 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
               {expandedEditIdx === idx && selectedRoutine?.id === 'custom' && (
                 <div className="px-4 pb-4 border-t border-slate-100 bg-purple-50/50">
                   <div className="mt-3 grid grid-cols-2 gap-3">
-                    {exerciseDef.trackingType === 'weight_reps' && (
-                      <>
-                        <div>
-                          <label className="text-xs text-slate-500 block mb-1">Set Sayısı</label>
-                          <input
-                            type="number"
-                            min="1"
-                            value={exSession.overrideSets ?? exerciseDef.defaultSets ?? 3}
-                            onChange={(e) => updateExerciseOverride(idx, { overrideSets: parseInt(e.target.value) || 1 })}
-                            className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs text-slate-500 block mb-1">Tekrar</label>
-                          <input
-                            type="number"
-                            min="1"
-                            value={exSession.overrideReps ?? exerciseDef.defaultReps ?? 10}
-                            onChange={(e) => updateExerciseOverride(idx, { overrideReps: parseInt(e.target.value) || 1 })}
-                            className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <label className="text-xs text-slate-500 block mb-1">Ağırlık (kg)</label>
-                          <input
-                            type="number"
-                            step="0.5"
-                            value={exSession.overrideWeight ?? exerciseDef.defaultWeight ?? ''}
-                            onChange={(e) => updateExerciseOverride(idx, { overrideWeight: e.target.value ? parseFloat(e.target.value) : undefined })}
-                            placeholder="Opsiyonel"
-                            className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
-                          />
-                        </div>
-                      </>
-                    )}
-                    {exerciseDef.trackingType === 'time' && (
-                      <div className="col-span-2">
-                        <label className="text-xs text-slate-500 block mb-1">Süre</label>
-                        <div className="flex gap-2">
-                          <div className="flex-1">
-                            <input
-                              type="number"
-                              min="0"
-                              value={Math.floor((exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 60) / 60)}
-                              onChange={(e) => {
-                                const mins = parseInt(e.target.value) || 0;
-                                const currentSecs = (exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 60) % 60;
-                                updateExerciseOverride(idx, { overrideTimeSeconds: mins * 60 + currentSecs });
-                              }}
-                              className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
-                            />
-                            <span className="text-xs text-slate-400 mt-0.5 block">dakika</span>
-                          </div>
-                          <div className="flex-1">
-                            <input
-                              type="number"
-                              min="0"
-                              max="59"
-                              value={(exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 60) % 60}
-                              onChange={(e) => {
-                                const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
-                                const currentMins = Math.floor((exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 60) / 60);
-                                updateExerciseOverride(idx, { overrideTimeSeconds: currentMins * 60 + secs });
-                              }}
-                              className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
-                            />
-                            <span className="text-xs text-slate-400 mt-0.5 block">saniye</span>
-                          </div>
-                        </div>
+                    {/* Set */}
+                    <div>
+                      <label className="text-xs text-slate-500 block mb-1">Set Sayısı</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={exSession.overrideSets ?? exerciseDef.defaultSets ?? ''}
+                        onChange={(e) => updateExerciseOverride(idx, { overrideSets: parseInt(e.target.value) || undefined })}
+                        className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                        placeholder="Örn: 3"
+                      />
+                    </div>
+
+                    {/* Tekrar */}
+                    <div>
+                      <label className="text-xs text-slate-500 block mb-1">Tekrar</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={exSession.overrideReps ?? exerciseDef.defaultReps ?? ''}
+                        onChange={(e) => updateExerciseOverride(idx, { overrideReps: parseInt(e.target.value) || undefined })}
+                        className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                        placeholder="Örn: 10"
+                      />
+                    </div>
+
+                    {/* Ağırlık */}
+                    <div>
+                      <label className="text-xs text-slate-500 block mb-1">Ağırlık (kg)</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={exSession.overrideWeight ?? exerciseDef.defaultWeight ?? ''}
+                        onChange={(e) => updateExerciseOverride(idx, { overrideWeight: e.target.value ? parseFloat(e.target.value) : undefined })}
+                        placeholder="Örn: 20"
+                        className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                    </div>
+
+                    {/* Süre - Kompakt */}
+                    <div>
+                      <label className="text-xs text-slate-500 block mb-1">Süre</label>
+                      <div className="flex gap-1">
+                        <input
+                          type="number"
+                          min="0"
+                          value={Math.floor((exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 0) / 60) || ''}
+                          onChange={(e) => {
+                            const mins = parseInt(e.target.value) || 0;
+                            const currentSecs = (exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 0) % 60;
+                            updateExerciseOverride(idx, { overrideTimeSeconds: mins * 60 + currentSecs || undefined });
+                          }}
+                          className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                          placeholder="dk"
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          max="59"
+                          value={(exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 0) % 60 || ''}
+                          onChange={(e) => {
+                            const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
+                            const currentMins = Math.floor((exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 0) / 60);
+                            updateExerciseOverride(idx, { overrideTimeSeconds: currentMins * 60 + secs || undefined });
+                          }}
+                          className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                          placeholder="sn"
+                        />
                       </div>
-                    )}
+                    </div>
                   </div>
                 </div>
               )}

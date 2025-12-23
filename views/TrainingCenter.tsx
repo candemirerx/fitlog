@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { AppData, Equipment, Exercise, Routine, RoutineCategory, TrackingType, RoutineExercise } from '../types';
+import { AppData, Equipment, Exercise, Routine, RoutineCategory, RoutineExercise } from '../types';
 import { Button } from '../components/Button';
 import { Plus, Trash2, Image as ImageIcon, Video, X, Camera, Clock, CheckSquare, Dumbbell, ChevronDown, ChevronUp, Target, Pencil, Package, Search, Check, Loader2 } from 'lucide-react';
 import { MediaButtons } from './ActiveWorkout';
@@ -38,7 +38,6 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
   const [selectedRoutineExercises, setSelectedRoutineExercises] = useState<RoutineExercise[]>([]);
 
   // Exercise specific
-  const [selectedTrackingType, setSelectedTrackingType] = useState<TrackingType>('weight_reps');
   const [newItemDefaultSets, setNewItemDefaultSets] = useState<number>(3);
   const [newItemDefaultReps, setNewItemDefaultReps] = useState<number>(10);
   const [newItemDefaultTime, setNewItemDefaultTime] = useState<number>(60);
@@ -151,10 +150,10 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
         description: newItemDesc,
         equipmentIds: selectedEquipmentIds,
         media: newItemMedia,
-        trackingType: selectedTrackingType,
-        defaultSets: newItemDefaultSets,
-        defaultReps: selectedTrackingType === 'weight_reps' ? newItemDefaultReps : undefined,
-        defaultTimeSeconds: selectedTrackingType === 'time' ? newItemDefaultTime : undefined,
+        // trackingType artık kullanılmıyor - tüm alanlar opsiyonel
+        defaultSets: newItemDefaultSets || undefined,
+        defaultReps: newItemDefaultReps || undefined,
+        defaultTimeSeconds: newItemDefaultTime || undefined,
         defaultWeight: newItemDefaultWeight
       };
 
@@ -194,10 +193,9 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
       setNewItemDesc(ex.description || '');
       setNewItemMedia(ex.media || '');
       setSelectedEquipmentIds(ex.equipmentIds || []);
-      setSelectedTrackingType(ex.trackingType || 'weight_reps');
-      setNewItemDefaultSets(ex.defaultSets || 3);
-      setNewItemDefaultReps(ex.defaultReps || 10);
-      setNewItemDefaultTime(ex.defaultTimeSeconds || 60);
+      setNewItemDefaultSets(ex.defaultSets || 0);
+      setNewItemDefaultReps(ex.defaultReps || 0);
+      setNewItemDefaultTime(ex.defaultTimeSeconds || 0);
       setNewItemDefaultWeight(ex.defaultWeight);
     }
     else if (activeTab === 'routines') {
@@ -224,7 +222,6 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
     setSelectedEquipmentIds([]);
     setSelectedRoutineExercises([]);
     setTempExerciseId('');
-    setSelectedTrackingType('weight_reps');
 
     // Reset defaults
     setNewItemDefaultSets(3);
@@ -240,22 +237,6 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
   };
 
   const isVideo = (source: string) => isVideoSource(source);
-
-  const getTrackingIcon = (type: TrackingType) => {
-    switch (type) {
-      case 'time': return <Clock size={14} />;
-      case 'completion': return <CheckSquare size={14} />;
-      default: return <Dumbbell size={14} />;
-    }
-  };
-
-  const getTrackingLabel = (type: TrackingType) => {
-    switch (type) {
-      case 'time': return 'Süre';
-      case 'completion': return 'Tamamlama';
-      default: return 'Ağırlık & Tekrar';
-    }
-  };
 
   return (
     <div className="pb-24">
@@ -323,8 +304,9 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                       {item.name}
                       {item.media && <MediaButtons media={[item.media]} compact />}
                     </h3>
-                    <span className="text-xs text-slate-500 flex items-center gap-1">
-                      {getTrackingIcon(item.trackingType || 'weight_reps')} {getTrackingLabel(item.trackingType || 'weight_reps')}
+                    {/* Kısa özet: hangi değerler varsa göster */}
+                    <span className="text-xs text-slate-500">
+                      {[item.defaultSets && `${item.defaultSets} set`, item.defaultReps && `${item.defaultReps} tekrar`, item.defaultWeight && `${item.defaultWeight}kg`, item.defaultTimeSeconds && `${Math.floor(item.defaultTimeSeconds / 60) > 0 ? `${Math.floor(item.defaultTimeSeconds / 60)}dk ` : ''}${item.defaultTimeSeconds % 60 > 0 ? `${item.defaultTimeSeconds % 60}sn` : ''}`].filter(Boolean).join(' • ') || 'Hedef belirlenmemiş'}
                     </span>
                   </div>
                 </div>
@@ -348,7 +330,7 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                         {item.defaultSets} set
                       </span>
                     )}
-                    {item.trackingType === 'weight_reps' && item.defaultReps && (
+                    {item.defaultReps && (
                       <span className="bg-blue-50 px-2.5 py-1 rounded-full text-blue-700 border border-blue-100 font-medium text-xs">
                         {item.defaultReps} tekrar
                       </span>
@@ -358,7 +340,7 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                         {item.defaultWeight} kg
                       </span>
                     )}
-                    {item.trackingType === 'time' && item.defaultTimeSeconds && (
+                    {item.defaultTimeSeconds && (
                       <span className="bg-amber-50 px-2.5 py-1 rounded-full text-amber-700 border border-amber-100 font-medium text-xs">
                         {Math.floor(item.defaultTimeSeconds / 60) > 0 ? `${Math.floor(item.defaultTimeSeconds / 60)} dk ` : ''}{item.defaultTimeSeconds % 60 > 0 ? `${item.defaultTimeSeconds % 60} sn` : ''}
                       </span>
@@ -454,9 +436,6 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                               {def?.media && <MediaButtons media={[def.media]} compact />}
                               <span className="font-medium text-slate-800">{def?.name || 'Silinmiş Egzersiz'}</span>
                             </div>
-                            <span className="text-xs text-slate-400 flex items-center gap-1">
-                              {getTrackingIcon(def?.trackingType || 'weight_reps')}
-                            </span>
                           </div>
                           {/* Detaylı Hedefler */}
                           <div className="flex flex-wrap gap-1.5 mt-2">
@@ -465,7 +444,7 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                                 {ex.targetSets} set
                               </span>
                             )}
-                            {def?.trackingType === 'weight_reps' && ex.targetReps && (
+                            {ex.targetReps && (
                               <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full font-medium">
                                 {ex.targetReps} tekrar
                               </span>
@@ -475,7 +454,7 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                                 {ex.targetWeight} kg
                               </span>
                             )}
-                            {def?.trackingType === 'time' && ex.targetTimeSeconds && (
+                            {ex.targetTimeSeconds && (
                               <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full font-medium">
                                 {formatTime(ex.targetTimeSeconds)}
                               </span>
@@ -529,77 +508,87 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
 
               {activeTab === 'exercises' && (
                 <div className="space-y-3 border-t border-b border-slate-100 py-3">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Takip Tipi</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button onClick={() => setSelectedTrackingType('weight_reps')} className={`p-2 rounded-lg border text-sm flex flex-col items-center gap-1 ${selectedTrackingType === 'weight_reps' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-slate-600'}`}><Dumbbell size={18} /><span>Ağırlık & Tekrar</span></button>
-                      <button onClick={() => setSelectedTrackingType('time')} className={`p-2 rounded-lg border text-sm flex flex-col items-center gap-1 ${selectedTrackingType === 'time' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-slate-600'}`}><Clock size={18} /><span>Süre</span></button>
-                      <button onClick={() => setSelectedTrackingType('completion')} className={`p-2 rounded-lg border text-sm flex flex-col items-center gap-1 ${selectedTrackingType === 'completion' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-slate-600'}`}><CheckSquare size={18} /><span>Yapıldı</span></button>
-                    </div>
-                  </div>
-
-                  {/* Default Values for Exercises */}
+                  {/* Default Values for Exercises - 4 Opsiyonel Kutu */}
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                     <div className="flex items-center gap-2 mb-2 text-slate-700 font-medium text-sm">
                       <Target size={16} />
                       <span>Varsayılan Hedefler (Opsiyonel)</span>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
+                      {/* Set */}
                       <div>
-                        <label className="text-xs text-slate-500 block mb-1">Varsayılan Set</label>
-                        <input type="number" min="1" value={newItemDefaultSets} onChange={e => setNewItemDefaultSets(parseInt(e.target.value) || 1)} className="w-full p-2 border border-slate-300 rounded bg-white text-sm" />
+                        <label className="text-xs text-slate-500 block mb-1">Set</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={newItemDefaultSets || ''}
+                          onChange={e => setNewItemDefaultSets(parseInt(e.target.value) || 0)}
+                          className="w-full p-2 border border-slate-300 rounded bg-white text-sm"
+                          placeholder="Örn: 3"
+                        />
                       </div>
-                      {selectedTrackingType === 'weight_reps' && (
-                        <>
-                          <div>
-                            <label className="text-xs text-slate-500 block mb-1">Varsayılan Tekrar</label>
-                            <input type="number" value={newItemDefaultReps} onChange={e => setNewItemDefaultReps(parseInt(e.target.value) || 0)} className="w-full p-2 border border-slate-300 rounded bg-white text-sm" />
-                          </div>
-                          <div className="col-span-2">
-                            <label className="text-xs text-slate-500 block mb-1">Varsayılan Ağırlık (kg)</label>
-                            <input type="number" value={newItemDefaultWeight || ''} onChange={e => setNewItemDefaultWeight(e.target.value ? parseFloat(e.target.value) : undefined)} className="w-full p-2 border border-slate-300 rounded bg-white text-sm" placeholder="Opsiyonel" />
-                          </div>
-                        </>
-                      )}
-                      {selectedTrackingType === 'time' && (
-                        <div className="col-span-2">
-                          <label className="text-xs text-slate-500 block mb-1">Varsayılan Süre</label>
-                          <div className="flex gap-2">
-                            <div className="flex-1">
-                              <input
-                                type="number"
-                                min="0"
-                                value={Math.floor(newItemDefaultTime / 60)}
-                                onChange={e => {
-                                  const mins = parseInt(e.target.value) || 0;
-                                  const currentSecs = newItemDefaultTime % 60;
-                                  setNewItemDefaultTime(mins * 60 + currentSecs);
-                                }}
-                                className="w-full p-2 border border-slate-300 rounded bg-white text-sm"
-                              />
-                              <span className="text-xs text-slate-400 mt-0.5 block">dakika</span>
-                            </div>
-                            <div className="flex-1">
-                              <input
-                                type="number"
-                                min="0"
-                                max="59"
-                                value={newItemDefaultTime % 60}
-                                onChange={e => {
-                                  const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
-                                  const currentMins = Math.floor(newItemDefaultTime / 60);
-                                  setNewItemDefaultTime(currentMins * 60 + secs);
-                                }}
-                                className="w-full p-2 border border-slate-300 rounded bg-white text-sm"
-                              />
-                              <span className="text-xs text-slate-400 mt-0.5 block">saniye</span>
-                            </div>
-                          </div>
+
+                      {/* Tekrar */}
+                      <div>
+                        <label className="text-xs text-slate-500 block mb-1">Tekrar</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={newItemDefaultReps || ''}
+                          onChange={e => setNewItemDefaultReps(parseInt(e.target.value) || 0)}
+                          className="w-full p-2 border border-slate-300 rounded bg-white text-sm"
+                          placeholder="Örn: 10"
+                        />
+                      </div>
+
+                      {/* Ağırlık */}
+                      <div>
+                        <label className="text-xs text-slate-500 block mb-1">Ağırlık (kg)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          value={newItemDefaultWeight || ''}
+                          onChange={e => setNewItemDefaultWeight(e.target.value ? parseFloat(e.target.value) : undefined)}
+                          className="w-full p-2 border border-slate-300 rounded bg-white text-sm"
+                          placeholder="Örn: 20"
+                        />
+                      </div>
+
+                      {/* Süre - Kompakt */}
+                      <div>
+                        <label className="text-xs text-slate-500 block mb-1">Süre</label>
+                        <div className="flex gap-1">
+                          <input
+                            type="number"
+                            min="0"
+                            value={Math.floor((newItemDefaultTime || 0) / 60) || ''}
+                            onChange={e => {
+                              const mins = parseInt(e.target.value) || 0;
+                              const currentSecs = (newItemDefaultTime || 0) % 60;
+                              setNewItemDefaultTime(mins * 60 + currentSecs);
+                            }}
+                            className="w-full p-2 border border-slate-300 rounded bg-white text-sm"
+                            placeholder="dk"
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            max="59"
+                            value={(newItemDefaultTime || 0) % 60 || ''}
+                            onChange={e => {
+                              const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
+                              const currentMins = Math.floor((newItemDefaultTime || 0) / 60);
+                              setNewItemDefaultTime(currentMins * 60 + secs);
+                            }}
+                            className="w-full p-2 border border-slate-300 rounded bg-white text-sm"
+                            placeholder="sn"
+                          />
                         </div>
-                      )}
+                      </div>
                     </div>
                     <p className="text-[10px] text-slate-400 mt-2 leading-tight">
-                      * Bu değerler serbest antrenman sırasında egzersizi eklediğinizde otomatik olarak setleri doldurur.
+                      * Sadece ihtiyacınız olan alanları doldurun. Bu değerler antrenman sırasında otomatik olarak kullanılır.
                     </p>
                   </div>
                 </div>
@@ -703,55 +692,72 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                                   />
                                 </div>
 
-                                {def?.trackingType === 'weight_reps' && (
-                                  <>
-                                    <div>
-                                      <label className="text-xs text-slate-500 block mb-1">Tekrar</label>
-                                      <input
-                                        type="number"
-                                        value={tempTargetReps}
-                                        onChange={e => setTempTargetReps(parseInt(e.target.value) || 0)}
-                                        className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
-                                      />
-                                    </div>
-                                    <div className="col-span-2">
-                                      <label className="text-xs text-slate-500 block mb-1">Ağırlık (kg)</label>
-                                      <input
-                                        type="number"
-                                        value={tempTargetWeight || ''}
-                                        onChange={e => setTempTargetWeight(e.target.value ? parseFloat(e.target.value) : undefined)}
-                                        className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
-                                        placeholder="Opsiyonel"
-                                      />
-                                    </div>
-                                  </>
-                                )}
+                                <div>
+                                  <label className="text-xs text-slate-500 block mb-1">Tekrar</label>
+                                  <input
+                                    type="number"
+                                    value={tempTargetReps || ''}
+                                    onChange={e => setTempTargetReps(parseInt(e.target.value) || 0)}
+                                    className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                    placeholder="Opsiyonel"
+                                  />
+                                </div>
 
-                                {def?.trackingType === 'time' && (
-                                  <div className="col-span-2">
-                                    <label className="text-xs text-slate-500 block mb-1">Süre (saniye)</label>
+                                <div>
+                                  <label className="text-xs text-slate-500 block mb-1">Ağırlık (kg)</label>
+                                  <input
+                                    type="number"
+                                    value={tempTargetWeight || ''}
+                                    onChange={e => setTempTargetWeight(e.target.value ? parseFloat(e.target.value) : undefined)}
+                                    className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                    placeholder="Opsiyonel"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="text-xs text-slate-500 block mb-1">Süre</label>
+                                  <div className="flex gap-1">
                                     <input
                                       type="number"
-                                      value={tempTargetTime}
-                                      onChange={e => setTempTargetTime(parseInt(e.target.value) || 0)}
+                                      min="0"
+                                      value={Math.floor((tempTargetTime || 0) / 60) || ''}
+                                      onChange={e => {
+                                        const mins = parseInt(e.target.value) || 0;
+                                        const currentSecs = (tempTargetTime || 0) % 60;
+                                        setTempTargetTime(mins * 60 + currentSecs);
+                                      }}
                                       className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                      placeholder="dk"
+                                    />
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="59"
+                                      value={(tempTargetTime || 0) % 60 || ''}
+                                      onChange={e => {
+                                        const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
+                                        const currentMins = Math.floor((tempTargetTime || 0) / 60);
+                                        setTempTargetTime(currentMins * 60 + secs);
+                                      }}
+                                      className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                      placeholder="sn"
                                     />
                                   </div>
-                                )}
+                                </div>
                               </div>
 
                               <Button
                                 size="sm"
                                 fullWidth
                                 onClick={() => {
-                                  // Güncelle
+                                  // Güncelle - tüm değerler opsiyonel olarak kaydedilir
                                   setSelectedRoutineExercises(prev => prev.map(item =>
                                     item.exerciseId === re.exerciseId
                                       ? {
                                         ...item,
                                         targetSets: tempTargetSets,
-                                        targetReps: def?.trackingType === 'weight_reps' ? tempTargetReps : undefined,
-                                        targetTimeSeconds: def?.trackingType === 'time' ? tempTargetTime : undefined,
+                                        targetReps: tempTargetReps || undefined,
+                                        targetTimeSeconds: tempTargetTime || undefined,
                                         targetWeight: tempTargetWeight
                                       }
                                       : item
@@ -770,8 +776,7 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                             <div className="text-sm">
                               <div className="font-bold text-brand-800">{def?.name}</div>
                               <div className="text-xs text-brand-600">
-                                {re.targetSets} set x {def?.trackingType === 'time' ? `${re.targetTimeSeconds}sn` : `${re.targetReps} tekrar`}
-                                {re.targetWeight ? ` @ ${re.targetWeight}kg` : ''}
+                                {[re.targetSets && `${re.targetSets} set`, re.targetReps && `${re.targetReps} tekrar`, re.targetWeight && `${re.targetWeight}kg`, re.targetTimeSeconds && `${re.targetTimeSeconds}sn`].filter(Boolean).join(' • ') || 'Hedef yok'}
                               </div>
                             </div>
                             <div className="flex items-center gap-1">
@@ -897,11 +902,6 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                           )}
                         </div>
 
-                        <div className="flex items-center gap-1 text-xs text-slate-500">
-                          {getTrackingIcon(exercise.trackingType || 'weight_reps')}
-                          <span>{getTrackingLabel(exercise.trackingType || 'weight_reps')}</span>
-                        </div>
-
                         {/* Default targets preview */}
                         <div className="flex flex-wrap gap-1 mt-2">
                           {exercise.defaultSets && (
@@ -909,12 +909,17 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                               {exercise.defaultSets} set
                             </span>
                           )}
-                          {exercise.trackingType === 'weight_reps' && exercise.defaultReps && (
+                          {exercise.defaultReps && (
                             <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
                               {exercise.defaultReps} tekrar
                             </span>
                           )}
-                          {exercise.trackingType === 'time' && exercise.defaultTimeSeconds && (
+                          {exercise.defaultWeight && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
+                              {exercise.defaultWeight}kg
+                            </span>
+                          )}
+                          {exercise.defaultTimeSeconds && (
                             <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
                               {Math.floor(exercise.defaultTimeSeconds / 60) > 0 ? `${Math.floor(exercise.defaultTimeSeconds / 60)}dk ` : ''}{exercise.defaultTimeSeconds % 60 > 0 ? `${exercise.defaultTimeSeconds % 60}sn` : ''}
                             </span>
@@ -952,14 +957,14 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
               </div>
               <Button
                 onClick={() => {
-                  // Add all selected exercises with their default values
+                  // Seçilen egzersizleri varsayılan değerleriyle ekle
                   const newExercises: RoutineExercise[] = pickerSelectedIds.map(id => {
                     const exDef = data.exercises.find(e => e.id === id);
                     return {
                       exerciseId: id,
                       targetSets: exDef?.defaultSets || 3,
-                      targetReps: exDef?.trackingType === 'weight_reps' ? (exDef?.defaultReps || 10) : undefined,
-                      targetTimeSeconds: exDef?.trackingType === 'time' ? (exDef?.defaultTimeSeconds || 60) : undefined,
+                      targetReps: exDef?.defaultReps || undefined,
+                      targetTimeSeconds: exDef?.defaultTimeSeconds || undefined,
                       targetWeight: exDef?.defaultWeight
                     };
                   });

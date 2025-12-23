@@ -20,8 +20,8 @@ export interface Exercise {
   equipmentIds: string[];
   videoUrl?: string; // Could be a link or local reference
   media?: string; // Base64 image/video thumbnail
-  trackingType: TrackingType;
-  
+  trackingType?: TrackingType; // Optional - artık kullanılmıyor, geriye dönük uyumluluk için
+
   // Default targets for Free Workout auto-population
   defaultSets?: number;
   defaultReps?: number;

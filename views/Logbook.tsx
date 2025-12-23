@@ -41,16 +41,16 @@ export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
     });
   };
 
-  const formatSetDisplay = (set: WorkoutSet, type?: string) => {
-    if (type === 'time') {
-      const mins = Math.floor((set.timeSeconds || 0) / 60);
-      const secs = (set.timeSeconds || 0) % 60;
-      return `${mins > 0 ? `${mins}dk ` : ''}${secs}sn`;
+  const formatSetDisplay = (set: WorkoutSet) => {
+    const parts = [];
+    if (set.weight) parts.push(`${set.weight}kg`);
+    if (set.reps) parts.push(`${set.reps} tekrar`);
+    if (set.timeSeconds) {
+      const mins = Math.floor(set.timeSeconds / 60);
+      const secs = set.timeSeconds % 60;
+      parts.push(`${mins > 0 ? `${mins}dk ` : ''}${secs}sn`);
     }
-    if (type === 'completion') {
-      return 'Tamamlandı';
-    }
-    return `${set.weight ? `${set.weight}kg x ` : ''}${set.reps || 0} tekrar`;
+    return parts.length > 0 ? parts.join(' x ') : (set.completed ? 'Tamamlandı' : '');
   };
 
   const formatTimeDetailed = (seconds?: number) => {
@@ -122,12 +122,10 @@ export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
               <div class="exercise-item">
                 <div class="exercise-name">${def?.name || 'Bilinmeyen'}</div>
                 <div class="exercise-details">
-                  ${def?.trackingType === 'weight_reps' ? `
-                    <span>📊 ${ex.sets.length} set</span>
-                    ${set?.reps ? `<span>🔄 ${set.reps} tekrar</span>` : ''}
-                    ${set?.weight ? `<span>🏋️ ${set.weight} kg</span>` : ''}
-                  ` : ''}
-                  ${def?.trackingType === 'time' && set?.timeSeconds ? `<span>⏱️ ${formatTimeDetailed(set.timeSeconds)}</span>` : ''}
+                  <span>📊 ${ex.sets.length} set</span>
+                  ${set?.reps ? `<span>🔄 ${set.reps} tekrar</span>` : ''}
+                  ${set?.weight ? `<span>🏋️ ${set.weight} kg</span>` : ''}
+                  ${set?.timeSeconds ? `<span>⏱️ ${formatTimeDetailed(set.timeSeconds)}</span>` : ''}
                 </div>
               </div>
             `}).join('')}
@@ -281,37 +279,27 @@ export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
                               <div className="flex-1 min-w-0">
                                 <div className="font-medium text-slate-800 flex items-center gap-2">
                                   {def?.name || 'Bilinmeyen Egzersiz'}
-                                  {def?.trackingType === 'time' && <Clock size={12} className="text-amber-500" />}
                                 </div>
 
                                 {/* Quick Summary - Kapalı */}
                                 {!isExerciseExpanded && (
                                   <div className="flex flex-wrap gap-1.5 mt-1">
-                                    {def?.trackingType === 'weight_reps' && (
-                                      <>
-                                        <span className="text-[10px] px-1.5 py-0.5 bg-brand-50 text-brand-700 rounded">
-                                          {ex.sets.length} set
-                                        </span>
-                                        {set?.reps && (
-                                          <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded">
-                                            {set.reps} tekrar
-                                          </span>
-                                        )}
-                                        {set?.weight && (
-                                          <span className="text-[10px] px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded">
-                                            {set.weight} kg
-                                          </span>
-                                        )}
-                                      </>
-                                    )}
-                                    {def?.trackingType === 'time' && set?.timeSeconds && (
-                                      <span className="text-[10px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded">
-                                        {formatTimeDetailed(set.timeSeconds)}
+                                    <span className="text-[10px] px-1.5 py-0.5 bg-brand-50 text-brand-700 rounded">
+                                      {ex.sets.length} set
+                                    </span>
+                                    {set?.reps && (
+                                      <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded">
+                                        {set.reps} tekrar
                                       </span>
                                     )}
-                                    {def?.trackingType === 'completion' && (
-                                      <span className="text-[10px] px-1.5 py-0.5 bg-green-50 text-green-700 rounded">
-                                        ✓ Tamamlandı
+                                    {set?.weight && (
+                                      <span className="text-[10px] px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded">
+                                        {set.weight} kg
+                                      </span>
+                                    )}
+                                    {set?.timeSeconds && (
+                                      <span className="text-[10px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded">
+                                        {formatTimeDetailed(set.timeSeconds)}
                                       </span>
                                     )}
                                   </div>
@@ -326,33 +314,29 @@ export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
                               <div className="px-4 pb-3 pt-2 border-t border-slate-100 bg-slate-50/50 animate-in slide-in-from-top-1 duration-150">
                                 {/* Hedef Etiketleri */}
                                 <div className="flex flex-wrap gap-2 mb-3">
-                                  {def?.trackingType === 'weight_reps' && (
-                                    <>
-                                      <div className="bg-white p-2 rounded-lg border border-slate-200 text-center min-w-[60px]">
-                                        <div className="flex items-center justify-center gap-1 text-brand-600 mb-0.5">
-                                          <Target size={12} />
-                                        </div>
-                                        <span className="text-sm font-bold text-slate-800">{ex.sets.length} set</span>
+                                  <div className="bg-white p-2 rounded-lg border border-slate-200 text-center min-w-[60px]">
+                                    <div className="flex items-center justify-center gap-1 text-brand-600 mb-0.5">
+                                      <Target size={12} />
+                                    </div>
+                                    <span className="text-sm font-bold text-slate-800">{ex.sets.length} set</span>
+                                  </div>
+                                  {set?.reps && (
+                                    <div className="bg-white p-2 rounded-lg border border-slate-200 text-center min-w-[60px]">
+                                      <div className="flex items-center justify-center gap-1 text-blue-600 mb-0.5">
+                                        <Dumbbell size={12} />
                                       </div>
-                                      {set?.reps && (
-                                        <div className="bg-white p-2 rounded-lg border border-slate-200 text-center min-w-[60px]">
-                                          <div className="flex items-center justify-center gap-1 text-blue-600 mb-0.5">
-                                            <Dumbbell size={12} />
-                                          </div>
-                                          <span className="text-sm font-bold text-slate-800">{set.reps} tekrar</span>
-                                        </div>
-                                      )}
-                                      {set?.weight && (
-                                        <div className="bg-white p-2 rounded-lg border border-slate-200 text-center min-w-[60px]">
-                                          <div className="flex items-center justify-center gap-1 text-purple-600 mb-0.5">
-                                            <Dumbbell size={12} />
-                                          </div>
-                                          <span className="text-sm font-bold text-slate-800">{set.weight} kg</span>
-                                        </div>
-                                      )}
-                                    </>
+                                      <span className="text-sm font-bold text-slate-800">{set.reps} tekrar</span>
+                                    </div>
                                   )}
-                                  {def?.trackingType === 'time' && set?.timeSeconds && (
+                                  {set?.weight && (
+                                    <div className="bg-white p-2 rounded-lg border border-slate-200 text-center min-w-[60px]">
+                                      <div className="flex items-center justify-center gap-1 text-purple-600 mb-0.5">
+                                        <Dumbbell size={12} />
+                                      </div>
+                                      <span className="text-sm font-bold text-slate-800">{set.weight} kg</span>
+                                    </div>
+                                  )}
+                                  {set?.timeSeconds && (
                                     <div className="bg-white p-2 rounded-lg border border-slate-200 text-center min-w-[80px]">
                                       <div className="flex items-center justify-center gap-1 text-amber-600 mb-0.5">
                                         <Timer size={12} />
@@ -384,7 +368,7 @@ export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
                                           key={sIdx}
                                           className="text-[10px] bg-slate-100 text-slate-600 px-2 py-1 rounded"
                                         >
-                                          {sIdx + 1}. {formatSetDisplay(s, def?.trackingType)}
+                                          {sIdx + 1}. {formatSetDisplay(s)}
                                         </span>
                                       ))}
                                     </div>
