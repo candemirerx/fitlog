@@ -118,15 +118,28 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
   // Ses uyarısı fonksiyonu
+  const lastSpokenTimeRef = useRef(0);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
   const speakAlert = (message: string) => {
-    if ('speechSynthesis' in window) {
-      // Önceki konuşmayı durdur
-      speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(message);
-      utterance.lang = 'tr-TR';
-      utterance.rate = 1.1;
-      speechSynthesis.speak(utterance);
-    }
+    if (!('speechSynthesis' in window)) return;
+
+    // Aynı mesajı çok sık tekrar etme (1 saniye içinde)
+    const now = Date.now();
+    if (now - lastSpokenTimeRef.current < 1000) return;
+    lastSpokenTimeRef.current = now;
+
+    speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.lang = 'tr-TR';
+    utterance.rate = 1.1;
+
+    // Garbage collection fix: referansı tut
+    utteranceRef.current = utterance;
+    utterance.onend = () => { utteranceRef.current = null; };
+
+    speechSynthesis.speak(utterance);
   };
 
   // Session Timer
@@ -208,9 +221,18 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
             if (current && current.timerRemaining && current.timerRemaining > 0) {
               const newRemaining = current.timerRemaining - 1;
 
-              // Son 10 saniye uyarısı
+              // Son 10 saniye uyarısı - Egzersiz için
               if (newRemaining === 10) {
-                speakAlert('Son 10 saniye!');
+                // Sırada başka egzersiz var mı kontrol et
+                const nextIdx = activeTimerIdx + 1;
+                const nextExercise = nextIdx < prev.length ? prev[nextIdx] : null;
+
+                if (nextExercise && !nextExercise.completed) {
+                  const nextExDef = data.exercises.find(e => e.id === nextExercise.exerciseId);
+                  speakAlert(`Son 10 saniye! Sıradaki: ${nextExDef?.name || 'Egzersiz'}`);
+                } else {
+                  speakAlert('Son 10 saniye!');
+                }
               }
 
               if (newRemaining <= 0) {
@@ -224,19 +246,22 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
                     data.exercises.find(e => e.id === current.exerciseId)?.defaultTimeSeconds || 0)
                 };
                 setActiveTimerIdx(null);
-                speakAlert('Egzersiz tamamlandı!');
+
                 // Vibrate
                 if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
 
                 // Sıradaki egzersiz varsa dinlenme başlat (süreli olsun olmasın)
                 const nextIdx = activeTimerIdx + 1;
                 if (nextIdx < prev.length && !prev[nextIdx].completed) {
-                  // Sıradaki egzersiz var - dinlenme başlat
+                  // Sırada egzersiz var - "Egzersiz tamamlandı" demeye gerek yok, direkt dinlenme uyarısı gelecek
                   setTimeout(() => {
                     setRestTimer(restDuration);
                     setIsResting(true);
                     speakAlert('Dinlenme süresi başladı');
                   }, 500);
+                } else {
+                  // Son egzersiz
+                  speakAlert('Egzersiz tamamlandı!');
                 }
               } else {
                 updated[activeTimerIdx] = {
