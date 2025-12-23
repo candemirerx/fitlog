@@ -341,7 +341,16 @@ export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
                                       <div className="flex items-center justify-center gap-1 text-amber-600 mb-0.5">
                                         <Timer size={12} />
                                       </div>
-                                      <span className="text-sm font-bold text-slate-800">{formatTimeDetailed(set.timeSeconds)}</span>
+                                      <span className="text-sm font-bold text-slate-800">
+                                        {ex.actualDurationSeconds ? (
+                                          <>
+                                            <span className="text-green-600">{formatTimeDetailed(ex.actualDurationSeconds)}</span>
+                                            <span className="text-[10px] text-slate-400 block">/ {formatTimeDetailed(set.timeSeconds)}</span>
+                                          </>
+                                        ) : (
+                                          formatTimeDetailed(set.timeSeconds)
+                                        )}
+                                      </span>
                                     </div>
                                   )}
                                 </div>

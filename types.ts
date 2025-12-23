@@ -57,6 +57,7 @@ export interface WorkoutSet {
 export interface WorkoutExerciseLog {
   exerciseId: string;
   sets: WorkoutSet[];
+  actualDurationSeconds?: number; // Süresli egzersizlerin gerçek tamamlanma süresi
 }
 
 export interface WorkoutLog {

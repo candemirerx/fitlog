@@ -4,7 +4,7 @@ import { Button } from '../components/Button';
 import {
   Check, Play, Save, Clock, AlertCircle, Camera, Video,
   Image as ImageIcon, X, Trash2, ChevronDown, Filter,
-  MessageSquare, Timer, Dumbbell, RotateCcw, ChevronRight, Pencil, Loader2
+  MessageSquare, Timer, Dumbbell, RotateCcw, ChevronRight, Pencil, Loader2, Pause
 } from 'lucide-react';
 import { auth } from '../firebase';
 import { processAndUploadVideo, isVideoSource, isStorageUrl } from '../utils/videoUtils';
@@ -73,6 +73,9 @@ interface ExerciseSession {
   overrideReps?: number;
   overrideWeight?: number;
   overrideTimeSeconds?: number;
+  // Exercise Timer (for timed exercises)
+  timerRemaining?: number; // Kalan süre (saniye)
+  timerRunning?: boolean;  // Timer çalışıyor mu
 }
 
 export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLog }) => {
@@ -98,6 +101,9 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
   // Expanded Edit Index (for inline editing)
   const [expandedEditIdx, setExpandedEditIdx] = useState<number | null>(null);
 
+  // Active Exercise Timer Index
+  const [activeTimerIdx, setActiveTimerIdx] = useState<number | null>(null);
+
   // Quick Save Modal State
   const [quickSaveModalOpen, setQuickSaveModalOpen] = useState(false);
   const [quickSaveRoutine, setQuickSaveRoutine] = useState<Routine | null>(null);
@@ -110,6 +116,18 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+
+  // Ses uyarısı fonksiyonu
+  const speakAlert = (message: string) => {
+    if ('speechSynthesis' in window) {
+      // Önceki konuşmayı durdur
+      speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(message);
+      utterance.lang = 'tr-TR';
+      utterance.rate = 1.1;
+      speechSynthesis.speak(utterance);
+    }
+  };
 
   // Session Timer
   useEffect(() => {
@@ -132,10 +150,42 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
     if (isResting && restTimer > 0) {
       interval = setInterval(() => {
         setRestTimer(prev => {
+          // Son 10 saniye uyarısı - sıradaki egzersizin ismini söyle
+          if (prev === 11) {
+            const nextExercise = sessionExercises.find(ex => !ex.completed);
+            if (nextExercise) {
+              const nextExDef = data.exercises.find(e => e.id === nextExercise.exerciseId);
+              speakAlert(`Son 10 saniye! Sıradaki: ${nextExDef?.name || 'Egzersiz'}`);
+            } else {
+              speakAlert('Dinlenme süresi bitiyor, son 10 saniye!');
+            }
+          }
           if (prev <= 1) {
             setIsResting(false);
+
+            // Sıradaki tamamlanmamış egzersizi bul
+            const nextExercise = sessionExercises.find(ex => !ex.completed);
+            if (nextExercise) {
+              const nextExDef = data.exercises.find(e => e.id === nextExercise.exerciseId);
+              speakAlert(`Başla! ${nextExDef?.name || 'Egzersiz'}`);
+            } else {
+              speakAlert('Dinlenme bitti!');
+            }
+
             // Vibrate if available
             if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+
+            // Sıradaki tamamlanmamış süresli egzersizi bul ve başlat
+            const nextTimedIdx = sessionExercises.findIndex(
+              ex => ex.timerRemaining !== undefined && ex.timerRemaining > 0 && !ex.completed
+            );
+            if (nextTimedIdx !== -1) {
+              setSessionExercises(prev => prev.map((ex, i) =>
+                i === nextTimedIdx ? { ...ex, timerRunning: true } : { ...ex, timerRunning: false }
+              ));
+              setActiveTimerIdx(nextTimedIdx);
+            }
+
             return 0;
           }
           return prev - 1;
@@ -143,7 +193,65 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isResting, restTimer]);
+  }, [isResting, restTimer, sessionExercises, data.exercises]);
+
+  // Exercise Timer - Egzersiz geri sayımı
+  useEffect(() => {
+    let interval: any;
+    if (activeTimerIdx !== null) {
+      const exSession = sessionExercises[activeTimerIdx];
+      if (exSession?.timerRunning && exSession.timerRemaining && exSession.timerRemaining > 0) {
+        interval = setInterval(() => {
+          setSessionExercises(prev => {
+            const updated = [...prev];
+            const current = updated[activeTimerIdx];
+            if (current && current.timerRemaining && current.timerRemaining > 0) {
+              const newRemaining = current.timerRemaining - 1;
+
+              // Son 10 saniye uyarısı
+              if (newRemaining === 10) {
+                speakAlert('Son 10 saniye!');
+              }
+
+              if (newRemaining <= 0) {
+                // Süre bitti - tamamlandı yap
+                updated[activeTimerIdx] = {
+                  ...current,
+                  timerRemaining: 0,
+                  timerRunning: false,
+                  completed: true,
+                  actualDurationSeconds: (current.overrideTimeSeconds ||
+                    data.exercises.find(e => e.id === current.exerciseId)?.defaultTimeSeconds || 0)
+                };
+                setActiveTimerIdx(null);
+                speakAlert('Egzersiz tamamlandı!');
+                // Vibrate
+                if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
+
+                // Sıradaki egzersiz varsa dinlenme başlat (süreli olsun olmasın)
+                const nextIdx = activeTimerIdx + 1;
+                if (nextIdx < prev.length && !prev[nextIdx].completed) {
+                  // Sıradaki egzersiz var - dinlenme başlat
+                  setTimeout(() => {
+                    setRestTimer(restDuration);
+                    setIsResting(true);
+                    speakAlert('Dinlenme süresi başladı');
+                  }, 500);
+                }
+              } else {
+                updated[activeTimerIdx] = {
+                  ...current,
+                  timerRemaining: newRemaining
+                };
+              }
+            }
+            return updated;
+          });
+        }, 1000);
+      }
+    }
+    return () => clearInterval(interval);
+  }, [activeTimerIdx, sessionExercises, data.exercises, restDuration]);
 
   // Auto-save session
   useEffect(() => {
@@ -264,13 +372,35 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
 
   const startWorkout = (routine?: Routine) => {
     let exercises: ExerciseSession[] = [];
+    let firstTimedExerciseIdx: number | null = null;
 
     if (routine && routine.exercises) {
-      exercises = routine.exercises.map(ex => ({
-        exerciseId: ex.exerciseId,
-        completed: true, // Egzersiz seçildiğinde otomatik tamamlandı sayılıyor
-        note: ''
-      }));
+      exercises = routine.exercises.map((ex, idx) => {
+        const exerciseDef = data.exercises.find(e => e.id === ex.exerciseId);
+        // Rutin'deki hedef süre veya egzersizin varsayılan süresi
+        const targetTime = ex.targetTimeSeconds || exerciseDef?.defaultTimeSeconds;
+
+        // Süresli egzersizler için completed=false, timer ayarla
+        if (targetTime && targetTime > 0) {
+          // İlk süresli egzersizi bul
+          if (firstTimedExerciseIdx === null) {
+            firstTimedExerciseIdx = idx;
+          }
+          return {
+            exerciseId: ex.exerciseId,
+            completed: false,
+            note: '',
+            timerRemaining: targetTime,
+            timerRunning: firstTimedExerciseIdx === idx // İlk süresli egzersiz direkt başlasın
+          };
+        }
+        // Süresiz egzersizler varsayılan olarak tamamlandı
+        return {
+          exerciseId: ex.exerciseId,
+          completed: true,
+          note: ''
+        };
+      });
     }
 
     setSessionExercises(exercises);
@@ -278,6 +408,7 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
     setSessionMedia([]);
     setSessionNote('');
     setStartTime(new Date());
+    setActiveTimerIdx(firstTimedExerciseIdx); // İlk süresli egzersizin timer'ını başlat
     setStep('active');
   };
 
@@ -306,12 +437,117 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
   };
 
   const addExerciseToSession = (exerciseId: string) => {
-    setSessionExercises(prev => [...prev, { exerciseId, completed: true, note: '' }]); // Egzersiz seçildiğinde otomatik tamamlandı
+    const exerciseDef = data.exercises.find(e => e.id === exerciseId);
+    const targetTime = exerciseDef?.defaultTimeSeconds;
+
+    // Süresli egzersizler için timer ayarla - mevcut timer'ı durdurmadan sıraya ekle
+    if (targetTime && targetTime > 0) {
+      setSessionExercises(prev => [...prev, {
+        exerciseId,
+        completed: false,
+        note: '',
+        timerRemaining: targetTime,
+        timerRunning: false // Sıraya ekle, mevcut timer devam etsin
+      }]);
+      // Eğer aktif timer yoksa bu egzersizi başlat
+      if (activeTimerIdx === null) {
+        const newIdx = sessionExercises.length;
+        setTimeout(() => {
+          setSessionExercises(prev => prev.map((ex, i) =>
+            i === newIdx ? { ...ex, timerRunning: true } : ex
+          ));
+          setActiveTimerIdx(newIdx);
+        }, 100);
+      }
+    } else {
+      // Süresiz egzersizler varsayılan olarak tamamlandı
+      setSessionExercises(prev => [...prev, { exerciseId, completed: true, note: '' }]);
+    }
+  };
+
+  // Egzersiz Timer Başlat/Durdur
+  const toggleExerciseTimer = (idx: number) => {
+    const exSession = sessionExercises[idx];
+
+    if (exSession.timerRunning) {
+      // Timer'ı durdur
+      setSessionExercises(prev => {
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], timerRunning: false };
+        return updated;
+      });
+      setActiveTimerIdx(null);
+    } else {
+      // Önce diğer timer'ları durdur
+      setSessionExercises(prev => prev.map((ex, i) => ({
+        ...ex,
+        timerRunning: i === idx ? true : false
+      })));
+      setActiveTimerIdx(idx);
+    }
+  };
+
+  // Egzersiz Timer'ını sıfırla
+  const resetExerciseTimer = (idx: number) => {
+    const exSession = sessionExercises[idx];
+    const exerciseDef = data.exercises.find(e => e.id === exSession.exerciseId);
+    const targetTime = exSession.overrideTimeSeconds || exerciseDef?.defaultTimeSeconds || 60;
+
+    setSessionExercises(prev => {
+      const updated = [...prev];
+      updated[idx] = {
+        ...updated[idx],
+        timerRemaining: targetTime,
+        timerRunning: true, // Yeniden başlat ve direkt çalıştır
+        completed: false
+      };
+      return updated;
+    });
+    setActiveTimerIdx(idx);
+  };
+
+  // Manuel olarak egzersizi tamamla (geçen süreyi kaydet)
+  const manualCompleteExercise = (idx: number) => {
+    const exSession = sessionExercises[idx];
+    const exerciseDef = data.exercises.find(e => e.id === exSession.exerciseId);
+    const targetTime = exSession.overrideTimeSeconds || exerciseDef?.defaultTimeSeconds || 0;
+    const remaining = exSession.timerRemaining || 0;
+    const actualDuration = targetTime - remaining; // Geçen süre
+
+    setSessionExercises(prev => {
+      const updated = [...prev];
+      updated[idx] = {
+        ...updated[idx],
+        timerRemaining: 0,
+        timerRunning: false,
+        completed: true,
+        actualDurationSeconds: actualDuration > 0 ? actualDuration : undefined
+      };
+      return updated;
+    });
+
+    if (activeTimerIdx === idx) {
+      setActiveTimerIdx(null);
+    }
+
+    // Sıradaki egzersiz varsa dinlenme başlat (süreli olsun olmasın)
+    const nextIdx = idx + 1;
+    if (nextIdx < sessionExercises.length && !sessionExercises[nextIdx].completed) {
+      // Sıradaki egzersiz var - dinlenme başlat
+      setTimeout(() => {
+        setRestTimer(restDuration);
+        setIsResting(true);
+        speakAlert('Dinlenme süresi başladı');
+      }, 300);
+    }
   };
 
   const removeExerciseFromSession = (idx: number) => {
     if (confirm('Bu egzersizi çıkarmak istediğinize emin misiniz?')) {
       setSessionExercises(prev => prev.filter((_, i) => i !== idx));
+      if (activeTimerIdx === idx) {
+        setActiveTimerIdx(null);
+      }
     }
   };
 
@@ -341,7 +577,11 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
         timeSeconds: ex.overrideTimeSeconds ?? exerciseDef?.defaultTimeSeconds ?? 0,
         completed: ex.completed
       }];
-      return { exerciseId: ex.exerciseId, sets };
+      return {
+        exerciseId: ex.exerciseId,
+        sets,
+        actualDurationSeconds: ex.actualDurationSeconds // Gerçek tamamlanma süresi
+      };
     });
 
     const newLog: WorkoutLog = {
@@ -779,16 +1019,63 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
             >
               {/* Exercise Header */}
               <div className="p-4 flex items-start gap-3">
-                {/* Completion Toggle */}
-                <button
-                  onClick={() => toggleExerciseComplete(idx)}
-                  className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-all ${exSession.completed
-                    ? 'bg-green-500 text-white shadow-md'
-                    : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
-                    }`}
-                >
-                  <Check size={20} strokeWidth={3} />
-                </button>
+                {/* Completion Toggle veya Timer */}
+                {exSession.timerRemaining !== undefined ? (
+                  // Süresli egzersiz - Timer göster
+                  <div className="flex flex-col items-center gap-1">
+                    <button
+                      onClick={() => exSession.completed ? resetExerciseTimer(idx) : manualCompleteExercise(idx)}
+                      className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all font-mono text-xs font-bold cursor-pointer ${exSession.completed
+                        ? 'bg-green-500 text-white shadow-md hover:bg-green-600'
+                        : exSession.timerRunning
+                          ? 'bg-amber-500 text-white shadow-md animate-pulse hover:bg-amber-600'
+                          : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                        }`}
+                      title={exSession.completed ? 'Yeniden Başlat' : 'Tamamla'}
+                    >
+                      {exSession.completed || exSession.timerRemaining <= 0 ? (
+                        <Check size={20} strokeWidth={3} />
+                      ) : (
+                        <span className="text-[10px] leading-tight text-center">
+                          {Math.floor(exSession.timerRemaining / 60)}:{(exSession.timerRemaining % 60).toString().padStart(2, '0')}
+                        </span>
+                      )}
+                    </button>
+                    <div className="flex items-center gap-2">
+                      {/* Duraklat/Devam - sadece timer aktifken */}
+                      {exSession.timerRemaining > 0 && (
+                        <button
+                          onClick={() => toggleExerciseTimer(idx)}
+                          className={`p-1 rounded transition-colors ${exSession.timerRunning
+                            ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
+                            : 'text-green-600 bg-green-50 hover:bg-green-100'}`}
+                          title={exSession.timerRunning ? 'Duraklat' : 'Devam Et'}
+                        >
+                          {exSession.timerRunning ? <Pause size={14} /> : <Play size={14} />}
+                        </button>
+                      )}
+                      {/* Yeniden Başlat - her zaman görünür */}
+                      <button
+                        onClick={() => resetExerciseTimer(idx)}
+                        className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                        title="Yeniden Başlat"
+                      >
+                        <RotateCcw size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  // Normal egzersiz - Tik göster
+                  <button
+                    onClick={() => toggleExerciseComplete(idx)}
+                    className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-all ${exSession.completed
+                      ? 'bg-green-500 text-white shadow-md'
+                      : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                      }`}
+                  >
+                    <Check size={20} strokeWidth={3} />
+                  </button>
+                )}
 
                 {/* Exercise Info */}
                 <div className="flex-1 min-w-0">
@@ -868,95 +1155,99 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
               </div>
 
               {/* Expandable Edit Section - For inline value editing */}
-              {expandedEditIdx === idx && selectedRoutine?.id === 'custom' && (
-                <div className="px-4 pb-4 border-t border-slate-100 bg-purple-50/50">
-                  <div className="mt-3 grid grid-cols-2 gap-3">
-                    {/* Set */}
-                    <div>
-                      <label className="text-xs text-slate-500 block mb-1">Set Sayısı</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={exSession.overrideSets ?? exerciseDef.defaultSets ?? ''}
-                        onChange={(e) => updateExerciseOverride(idx, { overrideSets: parseInt(e.target.value) || undefined })}
-                        className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
-                        placeholder="Örn: 3"
-                      />
-                    </div>
-
-                    {/* Tekrar */}
-                    <div>
-                      <label className="text-xs text-slate-500 block mb-1">Tekrar</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={exSession.overrideReps ?? exerciseDef.defaultReps ?? ''}
-                        onChange={(e) => updateExerciseOverride(idx, { overrideReps: parseInt(e.target.value) || undefined })}
-                        className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
-                        placeholder="Örn: 10"
-                      />
-                    </div>
-
-                    {/* Ağırlık */}
-                    <div>
-                      <label className="text-xs text-slate-500 block mb-1">Ağırlık (kg)</label>
-                      <input
-                        type="number"
-                        step="0.5"
-                        value={exSession.overrideWeight ?? exerciseDef.defaultWeight ?? ''}
-                        onChange={(e) => updateExerciseOverride(idx, { overrideWeight: e.target.value ? parseFloat(e.target.value) : undefined })}
-                        placeholder="Örn: 20"
-                        className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
-                      />
-                    </div>
-
-                    {/* Süre - Kompakt */}
-                    <div>
-                      <label className="text-xs text-slate-500 block mb-1">Süre</label>
-                      <div className="flex gap-1">
+              {
+                expandedEditIdx === idx && selectedRoutine?.id === 'custom' && (
+                  <div className="px-4 pb-4 border-t border-slate-100 bg-purple-50/50">
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      {/* Set */}
+                      <div>
+                        <label className="text-xs text-slate-500 block mb-1">Set Sayısı</label>
                         <input
                           type="number"
-                          min="0"
-                          value={Math.floor((exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 0) / 60) || ''}
-                          onChange={(e) => {
-                            const mins = parseInt(e.target.value) || 0;
-                            const currentSecs = (exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 0) % 60;
-                            updateExerciseOverride(idx, { overrideTimeSeconds: mins * 60 + currentSecs || undefined });
-                          }}
+                          min="1"
+                          value={exSession.overrideSets ?? exerciseDef.defaultSets ?? ''}
+                          onChange={(e) => updateExerciseOverride(idx, { overrideSets: parseInt(e.target.value) || undefined })}
                           className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
-                          placeholder="dk"
+                          placeholder="Örn: 3"
                         />
+                      </div>
+
+                      {/* Tekrar */}
+                      <div>
+                        <label className="text-xs text-slate-500 block mb-1">Tekrar</label>
                         <input
                           type="number"
-                          min="0"
-                          max="59"
-                          value={(exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 0) % 60 || ''}
-                          onChange={(e) => {
-                            const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
-                            const currentMins = Math.floor((exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 0) / 60);
-                            updateExerciseOverride(idx, { overrideTimeSeconds: currentMins * 60 + secs || undefined });
-                          }}
+                          min="1"
+                          value={exSession.overrideReps ?? exerciseDef.defaultReps ?? ''}
+                          onChange={(e) => updateExerciseOverride(idx, { overrideReps: parseInt(e.target.value) || undefined })}
                           className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
-                          placeholder="sn"
+                          placeholder="Örn: 10"
                         />
+                      </div>
+
+                      {/* Ağırlık */}
+                      <div>
+                        <label className="text-xs text-slate-500 block mb-1">Ağırlık (kg)</label>
+                        <input
+                          type="number"
+                          step="0.5"
+                          value={exSession.overrideWeight ?? exerciseDef.defaultWeight ?? ''}
+                          onChange={(e) => updateExerciseOverride(idx, { overrideWeight: e.target.value ? parseFloat(e.target.value) : undefined })}
+                          placeholder="Örn: 20"
+                          className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                        />
+                      </div>
+
+                      {/* Süre - Kompakt */}
+                      <div>
+                        <label className="text-xs text-slate-500 block mb-1">Süre</label>
+                        <div className="flex gap-1">
+                          <input
+                            type="number"
+                            min="0"
+                            value={Math.floor((exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 0) / 60) || ''}
+                            onChange={(e) => {
+                              const mins = parseInt(e.target.value) || 0;
+                              const currentSecs = (exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 0) % 60;
+                              updateExerciseOverride(idx, { overrideTimeSeconds: mins * 60 + currentSecs || undefined });
+                            }}
+                            className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                            placeholder="dk"
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            max="59"
+                            value={(exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 0) % 60 || ''}
+                            onChange={(e) => {
+                              const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
+                              const currentMins = Math.floor((exSession.overrideTimeSeconds ?? exerciseDef.defaultTimeSeconds ?? 0) / 60);
+                              updateExerciseOverride(idx, { overrideTimeSeconds: currentMins * 60 + secs || undefined });
+                            }}
+                            className="w-full p-2 border border-slate-200 rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                            placeholder="sn"
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )
+              }
 
               {/* Expandable Note Section */}
-              {expandedNoteIdx === idx && (
-                <div className="px-4 pb-4 border-t border-slate-100 bg-slate-50/50">
-                  <textarea
-                    value={exSession.note}
-                    onChange={(e) => updateExerciseNote(idx, e.target.value)}
-                    placeholder="Bu egzersiz hakkında not ekle..."
-                    className="w-full mt-3 p-3 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand-500 resize-none"
-                    rows={2}
-                  />
-                </div>
-              )}
+              {
+                expandedNoteIdx === idx && (
+                  <div className="px-4 pb-4 border-t border-slate-100 bg-slate-50/50">
+                    <textarea
+                      value={exSession.note}
+                      onChange={(e) => updateExerciseNote(idx, e.target.value)}
+                      placeholder="Bu egzersiz hakkında not ekle..."
+                      className="w-full mt-3 p-3 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                      rows={2}
+                    />
+                  </div>
+                )
+              }
             </div>
           );
         })}
@@ -1058,6 +1349,6 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
           placeholder="Bugün nasıl hissettin? Antrenman hakkında notlar..."
         />
       </div>
-    </div>
+    </div >
   );
 };
