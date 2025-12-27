@@ -18,6 +18,7 @@ import { signInWithPopup, onAuthStateChanged } from 'firebase/auth';
 
 const INITIAL_DATA: AppData = {
   equipment: [],
+  movements: [],
   exercises: [],
   routines: [],
   logs: []
@@ -176,6 +177,7 @@ function App() {
             // Merge with initial data structure to ensure all fields exist
             const mergedData: AppData = {
               equipment: localData.equipment || [],
+              movements: localData.movements || [],
               exercises: localData.exercises || [],
               routines: localData.routines || [],
               logs: localData.logs || []

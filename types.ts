@@ -13,6 +13,25 @@ export interface Equipment {
 
 export type TrackingType = 'weight_reps' | 'time' | 'completion';
 
+// Hareket etki alanları
+export type MovementEffectArea = 'stretching' | 'balance' | 'breathing' | 'strength' | 'cardio' | 'flexibility';
+
+// Hareket - Varsayılan hedefleri ve medya bilgilerini içerir
+export interface Movement {
+  id: string;
+  name: string;
+  description?: string;
+  media?: string; // Base64 image/video 
+  equipmentIds: string[];
+  effectAreas: MovementEffectArea[]; // Etki alanları - en az biri zorunlu
+
+  // Varsayılan hedefler
+  defaultSets?: number;
+  defaultReps?: number;
+  defaultWeight?: number;
+  defaultTimeSeconds?: number;
+}
+
 export interface Exercise {
   id: string;
   name: string;
@@ -22,7 +41,10 @@ export interface Exercise {
   media?: string; // Base64 image/video thumbnail
   trackingType?: TrackingType; // Optional - artık kullanılmıyor, geriye dönük uyumluluk için
 
-  // Default targets for Free Workout auto-population
+  // Hareket referansı - yeni sistem
+  movementId?: string;
+
+  // Default targets for Free Workout auto-population (eski sistem - geriye dönük uyumluluk)
   defaultSets?: number;
   defaultReps?: number;
   defaultWeight?: number;
@@ -75,6 +97,7 @@ export interface WorkoutLog {
 
 export interface AppData {
   equipment: Equipment[];
+  movements: Movement[];
   exercises: Exercise[];
   routines: Routine[];
   logs: WorkoutLog[];
