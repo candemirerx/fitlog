@@ -71,6 +71,10 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
   const [isExercisePickerOpen, setIsExercisePickerOpen] = useState(false);
   const [pickerSelectedIds, setPickerSelectedIds] = useState<string[]>([]);
   const [exerciseSearchQuery, setExerciseSearchQuery] = useState('');
+  const [pickerTab, setPickerTab] = useState<'exercises' | 'movements'>('exercises');
+
+  // Form error message
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Video Upload Progress
   const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
@@ -163,7 +167,7 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
     } else if (activeTab === 'movements') {
       // En az bir etki alanı seçilmeli
       if (selectedEffectAreas.length === 0) {
-        alert("Lütfen en az bir etki alanı seçiniz.");
+        setFormError("Lütfen en az bir etki alanı seçiniz.");
         return;
       }
 
@@ -189,7 +193,7 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
     } else if (activeTab === 'exercises') {
       // Hareket seçilmediyse uyar
       if (!selectedMovementId) {
-        alert("Lütfen bir hareket seçiniz.");
+        setFormError("Lütfen bir hareket seçiniz.");
         return;
       }
 
@@ -284,6 +288,7 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
     setSelectedMovementId('');
     setMovementSearchQuery('');
     setSelectedEffectAreas([]);
+    setFormError(null);
 
     // Reset defaults
     setNewItemDefaultSets(3);
@@ -674,10 +679,105 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
             </div>
 
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">İsim</label>
-                <input value={newItemName} onChange={(e) => setNewItemName(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder={activeTab === 'equipment' ? "Örn: 10kg Dambıl" : "Örn: Şınav"} />
-              </div>
+              {/* İsim ve Görsel - movements için özel tasarım */}
+              {activeTab === 'movements' ? (
+                <div className="bg-gradient-to-br from-slate-50 to-emerald-50/30 rounded-xl border border-slate-200 p-4 space-y-3">
+                  {/* İsim */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">Hareket Adı</label>
+                    <input
+                      value={newItemName}
+                      onChange={(e) => setNewItemName(e.target.value)}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-base font-medium focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
+                      placeholder="Örn: Şınav, Plank, Squat..."
+                    />
+                  </div>
+
+                  {/* Görsel */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">Görsel / Video</label>
+                    <input type="file" ref={fileInputRef} onChange={handleMediaUpload} accept="image/*,video/*" className="hidden" />
+                    <input type="file" ref={cameraInputRef} onChange={handleMediaUpload} accept="image/*" capture="environment" className="hidden" />
+                    <input type="file" ref={videoInputRef} onChange={handleMediaUpload} accept="video/*" capture="environment" className="hidden" />
+
+                    {newItemMedia ? (
+                      // Seçilen medya önizlemesi
+                      <div className="flex items-center gap-3 bg-white rounded-lg border border-emerald-200 p-2">
+                        <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-slate-200 shrink-0">
+                          {isVideo(newItemMedia) ? (
+                            <video src={newItemMedia} className="w-full h-full object-cover" />
+                          ) : (
+                            <img src={newItemMedia} className="w-full h-full object-cover" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-emerald-700 font-medium truncate">
+                            {isVideo(newItemMedia) ? '🎬 Video eklendi' : '🖼️ Görsel eklendi'}
+                          </p>
+                          <p className="text-xs text-slate-500">Değiştirmek için sağdaki butona tıklayın</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setNewItemMedia('')}
+                          className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Görseli kaldır"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    ) : videoUploadProgress !== null ? (
+                      // Yükleme durumu
+                      <div className="bg-white rounded-lg border border-brand-200 p-3 flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
+                          <Loader2 size={20} className="animate-spin text-brand-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-brand-700">
+                            {videoUploadProgress < 50 ? 'Sıkıştırılıyor...' : 'Yükleniyor...'}
+                          </p>
+                          <div className="w-full h-1.5 bg-brand-100 rounded-full mt-1 overflow-hidden">
+                            <div className="h-full bg-brand-500 transition-all duration-300" style={{ width: `${videoUploadProgress}%` }} />
+                          </div>
+                        </div>
+                        <span className="text-xs font-medium text-brand-600">{Math.round(videoUploadProgress)}%</span>
+                      </div>
+                    ) : (
+                      // Medya seçim butonları
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="flex-1 py-2.5 px-3 bg-white border border-slate-200 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-50 hover:border-emerald-300 transition-all group"
+                        >
+                          <ImageIcon size={16} className="text-slate-400 group-hover:text-emerald-600" />
+                          <span className="text-sm text-slate-600 group-hover:text-emerald-700">Galeri</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => cameraInputRef.current?.click()}
+                          className="flex-1 py-2.5 px-3 bg-white border border-slate-200 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-50 hover:border-emerald-300 transition-all group"
+                        >
+                          <Camera size={16} className="text-slate-400 group-hover:text-emerald-600" />
+                          <span className="text-sm text-slate-600 group-hover:text-emerald-700">Fotoğraf</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => videoInputRef.current?.click()}
+                          className="flex-1 py-2.5 px-3 bg-white border border-slate-200 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-50 hover:border-emerald-300 transition-all group"
+                        >
+                          <Video size={16} className="text-slate-400 group-hover:text-emerald-600" />
+                          <span className="text-sm text-slate-600 group-hover:text-emerald-700">Video</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">İsim</label>
+                  <input value={newItemName} onChange={(e) => setNewItemName(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder={activeTab === 'equipment' ? "Örn: 10kg Dambıl" : "Örn: Şınav"} />
+                </div>
+              )}
 
               {activeTab === 'movements' && (
                 <div className="space-y-3 border-t border-b border-slate-100 py-3">
@@ -855,7 +955,7 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                 </div>
               )}
 
-              {(activeTab === 'equipment' || activeTab === 'movements') && (
+              {activeTab === 'equipment' && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">{activeTab === 'equipment' ? 'Fotoğraf / Video' : 'Görsel / Video'}</label>
                   {newItemMedia ? (
@@ -924,7 +1024,12 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                     {/* Selected Exercises List */}
                     <div className="space-y-2 mb-3">
                       {selectedRoutineExercises.map((re, idx) => {
-                        const def = data.exercises.find(e => e.id === re.exerciseId);
+                        // Hareket mi egzersiz mi kontrol et
+                        const isMovement = re.exerciseId.startsWith('mov_') || !!re.movementId;
+                        const movId = re.movementId || re.exerciseId.replace('mov_', '');
+                        const def = isMovement
+                          ? (data.movements || []).find(m => m.id === movId)
+                          : data.exercises.find(e => e.id === re.exerciseId);
                         const isEditingThisExercise = tempExerciseId === re.exerciseId;
 
                         if (isEditingThisExercise) {
@@ -1033,10 +1138,13 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                         }
 
                         return (
-                          <div key={idx} className="flex justify-between items-center bg-brand-50 p-2 rounded-lg border border-brand-100">
+                          <div key={idx} className={`flex justify-between items-center p-2 rounded-lg border ${isMovement ? 'bg-emerald-50 border-emerald-100' : 'bg-brand-50 border-brand-100'}`}>
                             <div className="text-sm">
-                              <div className="font-bold text-brand-800">{def?.name}</div>
-                              <div className="text-xs text-brand-600">
+                              <div className={`font-bold flex items-center gap-1.5 ${isMovement ? 'text-emerald-800' : 'text-brand-800'}`}>
+                                {isMovement && <Move size={12} className="text-emerald-600" />}
+                                {def?.name}
+                              </div>
+                              <div className={`text-xs ${isMovement ? 'text-emerald-600' : 'text-brand-600'}`}>
                                 {[re.targetSets && `${re.targetSets} set`, re.targetReps && `${re.targetReps} tekrar`, re.targetWeight && `${re.targetWeight}kg`, re.targetTimeSeconds && `${re.targetTimeSeconds}sn`].filter(Boolean).join(' • ') || 'Hedef yok'}
                               </div>
                             </div>
@@ -1064,22 +1172,40 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                       })}
                     </div>
 
-                    {/* Add Exercise Button */}
+                    {/* Add Exercise/Movement Button */}
                     <button
                       onClick={() => {
                         setPickerSelectedIds([]);
                         setExerciseSearchQuery('');
+                        setPickerTab('exercises');
                         setIsExercisePickerOpen(true);
                       }}
-                      className="w-full p-3 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-brand-400 hover:text-brand-600 hover:bg-brand-50 transition-all flex items-center justify-center gap-2 font-medium"
+                      className="w-full py-2 border-2 border-dashed border-slate-300 rounded-lg text-slate-400 hover:border-brand-400 hover:text-brand-600 hover:bg-brand-50 transition-all flex items-center justify-center"
+                      title="Egzersiz veya hareket ekle"
                     >
-                      <Plus size={18} />
-                      <span>Egzersiz Ekle</span>
+                      <Plus size={24} />
                     </button>
                   </div>
                 </>
               )}
-              <Button onClick={handleSaveItem} fullWidth className="mt-4">{editingId ? 'Güncelle' : 'Kaydet'}</Button>
+
+              {/* Hata Mesajı */}
+              {formError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                    <X size={14} className="text-red-600" />
+                  </div>
+                  <p className="text-sm text-red-700 font-medium">{formError}</p>
+                  <button
+                    onClick={() => setFormError(null)}
+                    className="ml-auto p-1 text-red-400 hover:text-red-600 transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
+              <Button onClick={() => { setFormError(null); handleSaveItem(); }} fullWidth className="mt-4">{editingId ? 'Güncelle' : 'Kaydet'}</Button>
             </div>
           </div>
         </div>
@@ -1091,150 +1217,265 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
           {/* Header */}
           <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
             <button
-              onClick={() => setIsExercisePickerOpen(false)}
+              onClick={() => { setIsExercisePickerOpen(false); setPickerTab('exercises'); }}
               className="p-2 -ml-2 text-slate-500 hover:text-slate-700"
             >
               <X size={24} />
             </button>
-            <h2 className="text-lg font-bold text-slate-900">Egzersiz Seç</h2>
+            <h2 className="text-lg font-bold text-slate-900">Antrenman İçeriği Ekle</h2>
             <div className="w-10" /> {/* Spacer for centering */}
           </div>
 
+          {/* Tab Buttons */}
+          <div className="px-4 py-2 bg-slate-100 border-b border-slate-200">
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setPickerTab('exercises'); setExerciseSearchQuery(''); setPickerSelectedIds([]); }}
+                className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-all flex items-center justify-center gap-2 ${pickerTab === 'exercises'
+                  ? 'bg-white text-brand-700 shadow-sm border border-brand-200'
+                  : 'text-slate-600 hover:bg-white/50'
+                  }`}
+              >
+                <Dumbbell size={16} />
+                <span>Egzersizlerim</span>
+              </button>
+              <button
+                onClick={() => { setPickerTab('movements'); setExerciseSearchQuery(''); setPickerSelectedIds([]); }}
+                className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-all flex items-center justify-center gap-2 ${pickerTab === 'movements'
+                  ? 'bg-white text-emerald-700 shadow-sm border border-emerald-200'
+                  : 'text-slate-600 hover:bg-white/50'
+                  }`}
+              >
+                <Move size={16} />
+                <span>Hareketlerim</span>
+              </button>
+            </div>
+          </div>
+
           {/* Search */}
-          <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
+          <div className={`px-4 py-3 border-b ${pickerTab === 'exercises' ? 'bg-brand-50 border-brand-200' : 'bg-emerald-50 border-emerald-200'}`}>
             <div className="relative">
               <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 value={exerciseSearchQuery}
                 onChange={(e) => setExerciseSearchQuery(e.target.value)}
-                placeholder="Egzersiz ara..."
-                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                placeholder={pickerTab === 'exercises' ? "Egzersiz ara..." : "Hareket ara..."}
+                className={`w-full pl-10 pr-4 py-2.5 border rounded-xl bg-white text-sm focus:outline-none focus:ring-2 ${pickerTab === 'exercises'
+                  ? 'border-brand-200 focus:ring-brand-500'
+                  : 'border-emerald-200 focus:ring-emerald-500'
+                  } focus:border-transparent`}
               />
             </div>
           </div>
 
-          {/* Exercise Grid */}
+          {/* Content Grid */}
           <div className="flex-1 overflow-y-auto p-4">
-            {data.exercises.length === 0 ? (
-              <div className="text-center py-12 text-slate-500">
-                <Dumbbell size={48} className="mx-auto mb-3 text-slate-300" />
-                <p className="font-medium">Henüz egzersiz eklenmemiş</p>
-                <p className="text-sm mt-1">Önce "Egzersizler" sekmesinden egzersiz ekleyin.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                {data.exercises
-                  .filter(ex => !selectedRoutineExercises.find(re => re.exerciseId === ex.id))
-                  .filter(ex => exerciseSearchQuery === '' || ex.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()))
-                  .map(exercise => {
-                    const isSelected = pickerSelectedIds.includes(exercise.id);
-                    return (
-                      <button
-                        key={exercise.id}
-                        onClick={() => {
-                          if (isSelected) {
-                            setPickerSelectedIds(prev => prev.filter(id => id !== exercise.id));
-                          } else {
-                            setPickerSelectedIds(prev => [...prev, exercise.id]);
-                          }
-                        }}
-                        className={`relative p-3 rounded-xl border-2 text-left transition-all ${isSelected
-                          ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-200'
-                          : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
-                          }`}
-                      >
-                        {/* Selection indicator */}
-                        {isSelected && (
-                          <div className="absolute top-2 right-2 w-5 h-5 bg-brand-500 rounded-full flex items-center justify-center">
-                            <Check size={12} className="text-white" />
-                          </div>
-                        )}
-
-                        {/* Exercise info */}
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <h3 className={`font-bold text-sm ${isSelected ? 'text-brand-800' : 'text-slate-800'}`}>
-                            {exercise.name}
-                          </h3>
-                          {exercise.media && (
-                            <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-                              <MediaButtons media={[exercise.media]} compact />
+            {/* Exercises Tab */}
+            {pickerTab === 'exercises' && (
+              <>
+                {data.exercises.length === 0 ? (
+                  <div className="text-center py-12 text-slate-500">
+                    <Dumbbell size={48} className="mx-auto mb-3 text-slate-300" />
+                    <p className="font-medium">Henüz egzersiz eklenmemiş</p>
+                    <p className="text-sm mt-1">Önce "Egzersizler" sekmesinden egzersiz ekleyin.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {data.exercises
+                      .filter(ex => !selectedRoutineExercises.find(re => re.exerciseId === ex.id))
+                      .filter(ex => exerciseSearchQuery === '' || ex.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()))
+                      .map(exercise => {
+                        const isSelected = pickerSelectedIds.includes(exercise.id);
+                        return (
+                          <button
+                            key={exercise.id}
+                            onClick={() => {
+                              if (isSelected) {
+                                setPickerSelectedIds(prev => prev.filter(id => id !== exercise.id));
+                              } else {
+                                setPickerSelectedIds(prev => [...prev, exercise.id]);
+                              }
+                            }}
+                            className={`relative p-3 rounded-xl border-2 text-left transition-all ${isSelected
+                              ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-200'
+                              : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                              }`}
+                          >
+                            {isSelected && (
+                              <div className="absolute top-2 right-2 w-5 h-5 bg-brand-500 rounded-full flex items-center justify-center">
+                                <Check size={12} className="text-white" />
+                              </div>
+                            )}
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <h3 className={`font-bold text-sm ${isSelected ? 'text-brand-800' : 'text-slate-800'}`}>
+                                {exercise.name}
+                              </h3>
+                              {exercise.media && (
+                                <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                                  <MediaButtons media={[exercise.media]} compact />
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-
-                        {/* Default targets preview */}
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {exercise.defaultSets && (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
-                              {exercise.defaultSets} set
-                            </span>
-                          )}
-                          {exercise.defaultReps && (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
-                              {exercise.defaultReps} tekrar
-                            </span>
-                          )}
-                          {exercise.defaultWeight && (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
-                              {exercise.defaultWeight}kg
-                            </span>
-                          )}
-                          {exercise.defaultTimeSeconds && (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
-                              {Math.floor(exercise.defaultTimeSeconds / 60) > 0 ? `${Math.floor(exercise.defaultTimeSeconds / 60)}dk ` : ''}{exercise.defaultTimeSeconds % 60 > 0 ? `${exercise.defaultTimeSeconds % 60}sn` : ''}
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-              </div>
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {exercise.defaultSets && <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">{exercise.defaultSets} set</span>}
+                              {exercise.defaultReps && <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">{exercise.defaultReps} tekrar</span>}
+                              {exercise.defaultWeight && <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">{exercise.defaultWeight}kg</span>}
+                              {exercise.defaultTimeSeconds && <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">{Math.floor(exercise.defaultTimeSeconds / 60) > 0 ? `${Math.floor(exercise.defaultTimeSeconds / 60)}dk ` : ''}{exercise.defaultTimeSeconds % 60 > 0 ? `${exercise.defaultTimeSeconds % 60}sn` : ''}</span>}
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </div>
+                )}
+                {data.exercises.length > 0 &&
+                  data.exercises
+                    .filter(ex => !selectedRoutineExercises.find(re => re.exerciseId === ex.id))
+                    .filter(ex => exerciseSearchQuery === '' || ex.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()))
+                    .length === 0 && (
+                    <div className="text-center py-12 text-slate-500">
+                      <Search size={48} className="mx-auto mb-3 text-slate-300" />
+                      <p className="font-medium">Sonuç bulunamadı</p>
+                      <p className="text-sm mt-1">Farklı bir arama terimi deneyin.</p>
+                    </div>
+                  )}
+              </>
             )}
 
-            {/* No results */}
-            {data.exercises.length > 0 &&
-              data.exercises
-                .filter(ex => !selectedRoutineExercises.find(re => re.exerciseId === ex.id))
-                .filter(ex => exerciseSearchQuery === '' || ex.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()))
-                .length === 0 && (
-                <div className="text-center py-12 text-slate-500">
-                  <Search size={48} className="mx-auto mb-3 text-slate-300" />
-                  <p className="font-medium">Sonuç bulunamadı</p>
-                  <p className="text-sm mt-1">Farklı bir arama terimi deneyin.</p>
-                </div>
-              )}
+            {/* Movements Tab */}
+            {pickerTab === 'movements' && (
+              <>
+                {(data.movements || []).length === 0 ? (
+                  <div className="text-center py-12 text-slate-500">
+                    <Move size={48} className="mx-auto mb-3 text-slate-300" />
+                    <p className="font-medium">Henüz hareket eklenmemiş</p>
+                    <p className="text-sm mt-1">Önce "Hareketlerim" sekmesinden hareket ekleyin.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {(data.movements || [])
+                      .filter(mov => exerciseSearchQuery === '' || mov.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()))
+                      .map(movement => {
+                        const isSelected = pickerSelectedIds.includes(`mov_${movement.id}`);
+                        return (
+                          <button
+                            key={movement.id}
+                            onClick={() => {
+                              const movId = `mov_${movement.id}`;
+                              if (isSelected) {
+                                setPickerSelectedIds(prev => prev.filter(id => id !== movId));
+                              } else {
+                                setPickerSelectedIds(prev => [...prev, movId]);
+                              }
+                            }}
+                            className={`relative p-3 rounded-xl border-2 text-left transition-all ${isSelected
+                              ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200'
+                              : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                              }`}
+                          >
+                            {isSelected && (
+                              <div className="absolute top-2 right-2 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center">
+                                <Check size={12} className="text-white" />
+                              </div>
+                            )}
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <h3 className={`font-bold text-sm ${isSelected ? 'text-emerald-800' : 'text-slate-800'}`}>
+                                {movement.name}
+                              </h3>
+                              {movement.media && (
+                                <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                                  <MediaButtons media={[movement.media]} compact />
+                                </div>
+                              )}
+                            </div>
+                            {/* Effect areas */}
+                            {(movement.effectAreas || []).length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1 mb-2">
+                                {(movement.effectAreas || []).slice(0, 3).map(areaKey => {
+                                  const area = EFFECT_AREAS.find(a => a.key === areaKey);
+                                  if (!area) return null;
+                                  return (
+                                    <span key={areaKey} className="text-[9px] px-1 py-0.5 bg-amber-50 text-amber-700 rounded">
+                                      {area.emoji}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            <div className="flex flex-wrap gap-1">
+                              {movement.defaultSets && <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded">{movement.defaultSets} set</span>}
+                              {movement.defaultReps && <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded">{movement.defaultReps} tekrar</span>}
+                              {movement.defaultWeight && <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded">{movement.defaultWeight}kg</span>}
+                              {movement.defaultTimeSeconds && <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded">{Math.floor(movement.defaultTimeSeconds / 60) > 0 ? `${Math.floor(movement.defaultTimeSeconds / 60)}dk ` : ''}{movement.defaultTimeSeconds % 60 > 0 ? `${movement.defaultTimeSeconds % 60}sn` : ''}</span>}
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </div>
+                )}
+                {(data.movements || []).length > 0 &&
+                  (data.movements || [])
+                    .filter(mov => exerciseSearchQuery === '' || mov.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()))
+                    .length === 0 && (
+                    <div className="text-center py-12 text-slate-500">
+                      <Search size={48} className="mx-auto mb-3 text-slate-300" />
+                      <p className="font-medium">Sonuç bulunamadı</p>
+                      <p className="text-sm mt-1">Farklı bir arama terimi deneyin.</p>
+                    </div>
+                  )}
+              </>
+            )}
           </div>
 
           {/* Bottom action bar */}
-          <div className="border-t border-slate-200 bg-white px-4 py-3 safe-area-inset-bottom">
+          <div className={`border-t bg-white px-4 py-3 safe-area-inset-bottom ${pickerTab === 'exercises' ? 'border-brand-200' : 'border-emerald-200'}`}>
             <div className="flex items-center gap-3">
               <div className="flex-1 text-sm text-slate-600">
                 {pickerSelectedIds.length > 0 ? (
-                  <span className="font-medium text-brand-600">{pickerSelectedIds.length} egzersiz seçildi</span>
+                  <span className={`font-medium ${pickerTab === 'exercises' ? 'text-brand-600' : 'text-emerald-600'}`}>
+                    {pickerSelectedIds.length} {pickerTab === 'exercises' ? 'egzersiz' : 'hareket'} seçildi
+                  </span>
                 ) : (
-                  <span>Egzersiz seçin</span>
+                  <span>{pickerTab === 'exercises' ? 'Egzersiz seçin' : 'Hareket seçin'}</span>
                 )}
               </div>
               <Button
                 onClick={() => {
-                  // Seçilen egzersizleri varsayılan değerleriyle ekle
-                  const newExercises: RoutineExercise[] = pickerSelectedIds.map(id => {
-                    const exDef = data.exercises.find(e => e.id === id);
-                    return {
-                      exerciseId: id,
-                      targetSets: exDef?.defaultSets || 3,
-                      targetReps: exDef?.defaultReps || undefined,
-                      targetTimeSeconds: exDef?.defaultTimeSeconds || undefined,
-                      targetWeight: exDef?.defaultWeight
-                    };
-                  });
-                  setSelectedRoutineExercises(prev => [...prev, ...newExercises]);
+                  if (pickerTab === 'exercises') {
+                    // Egzersizleri varsayılan değerleriyle ekle
+                    const newExercises: RoutineExercise[] = pickerSelectedIds.map(id => {
+                      const exDef = data.exercises.find(e => e.id === id);
+                      return {
+                        exerciseId: id,
+                        targetSets: exDef?.defaultSets || 3,
+                        targetReps: exDef?.defaultReps || undefined,
+                        targetTimeSeconds: exDef?.defaultTimeSeconds || undefined,
+                        targetWeight: exDef?.defaultWeight
+                      };
+                    });
+                    setSelectedRoutineExercises(prev => [...prev, ...newExercises]);
+                  } else {
+                    // Hareketleri egzersiz olarak ekle (mov_ prefix'ini kaldır)
+                    const newExercises: RoutineExercise[] = pickerSelectedIds.map(prefixedId => {
+                      const movId = prefixedId.replace('mov_', '');
+                      const movDef = (data.movements || []).find(m => m.id === movId);
+                      return {
+                        exerciseId: prefixedId, // mov_ prefix ile sakla, böylece hareket olduğu anlaşılır
+                        movementId: movId, // Orijinal hareket ID'si
+                        targetSets: movDef?.defaultSets || 3,
+                        targetReps: movDef?.defaultReps || undefined,
+                        targetTimeSeconds: movDef?.defaultTimeSeconds || undefined,
+                        targetWeight: movDef?.defaultWeight
+                      };
+                    });
+                    setSelectedRoutineExercises(prev => [...prev, ...newExercises]);
+                  }
                   setIsExercisePickerOpen(false);
                   setPickerSelectedIds([]);
+                  setPickerTab('exercises');
                 }}
                 disabled={pickerSelectedIds.length === 0}
-                className="px-6"
+                className={`px-6 ${pickerTab === 'movements' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}`}
               >
                 Onayla ({pickerSelectedIds.length})
               </Button>

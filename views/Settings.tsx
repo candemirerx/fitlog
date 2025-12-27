@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { AppData, User } from '../types';
 import { Button } from '../components/Button';
-import { Download, Upload, Database, LogOut, User as UserIcon, Lock, Mail, UserPlus, LogIn, Cloud, Smartphone } from 'lucide-react';
+import { Download, Upload, Database, LogOut, User as UserIcon, Lock, Mail, UserPlus, LogIn, Cloud, Smartphone, Trash2 } from 'lucide-react';
 
 interface SettingsProps {
   user: User;
@@ -278,6 +278,31 @@ export const SettingsView: React.FC<SettingsProps> = ({ user, data, onImport, on
           <Button onClick={() => fileInputRef.current?.click()} variant="secondary" fullWidth className="justify-start">
             <Upload size={18} className="mr-2" /> JSON İçe Aktar (Geri Yükle)
           </Button>
+
+          <div className="pt-2 border-t border-slate-100 mt-2">
+            <Button
+              onClick={() => {
+                if (confirm('UYARI: Tüm antrenman geçmişiniz, kayıtlı programlarınız, hareketleriniz ve verileriniz KALICI OLARAK SİLİNECEKTİR.\n\nBu işlem geri alınamaz!\n\nDevam etmek istediğinize emin misiniz?')) {
+                  if (confirm('SON UYARI: Gerçekten tüm verileri silmek ve uygulamayı sıfırlamak istiyor musunuz?')) {
+                    const resetData: AppData = {
+                      equipment: [],
+                      movements: [],
+                      exercises: [],
+                      routines: [],
+                      logs: []
+                    };
+                    onImport(resetData);
+                    alert('Tüm veriler başarıyla silindi ve uygulama sıfırlandı.');
+                  }
+                }
+              }}
+              variant="secondary"
+              fullWidth
+              className="justify-start text-red-600 border-red-100 hover:bg-red-50 hover:border-red-200"
+            >
+              <Trash2 size={18} className="mr-2" /> Tüm Verileri Sil
+            </Button>
+          </div>
         </div>
       </div>
 

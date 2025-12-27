@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AppData, WorkoutLog, WorkoutExerciseLog, WorkoutSet, Routine } from '../types';
+import { AppData, WorkoutLog, WorkoutExerciseLog, WorkoutSet, Routine, Movement } from '../types';
 import { Button } from '../components/Button';
 import {
   Check, Play, Save, Clock, AlertCircle, Camera, Video,
   Image as ImageIcon, X, Trash2, ChevronDown, Filter,
-  MessageSquare, Timer, Dumbbell, RotateCcw, ChevronRight, Pencil, Loader2, Pause
+  MessageSquare, Timer, Dumbbell, RotateCcw, ChevronRight, Pencil, Loader2, Pause,
+  Plus, Search, Move
 } from 'lucide-react';
 import { auth } from '../firebase';
 import { processAndUploadVideo, isVideoSource, isStorageUrl } from '../utils/videoUtils';
@@ -108,6 +109,12 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
   const [quickSaveModalOpen, setQuickSaveModalOpen] = useState(false);
   const [quickSaveRoutine, setQuickSaveRoutine] = useState<Routine | null>(null);
   const [quickSaveSelectedExercises, setQuickSaveSelectedExercises] = useState<string[]>([]);
+
+  // Exercise/Movement Picker for Free Workout
+  const [isExercisePickerOpen, setIsExercisePickerOpen] = useState(false);
+  const [pickerSelectedIds, setPickerSelectedIds] = useState<string[]>([]);
+  const [exerciseSearchQuery, setExerciseSearchQuery] = useState('');
+  const [pickerTab, setPickerTab] = useState<'exercises' | 'movements'>('exercises');
 
   // Video Upload Progress
   const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
@@ -1026,13 +1033,22 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
       {/* Exercise Cards */}
       <div className="space-y-3">
         {sessionExercises.map((exSession, idx) => {
-          const exerciseDef = data.exercises.find(e => e.id === exSession.exerciseId);
+          // Hareket mi egzersiz mi kontrol et
+          const isMovement = exSession.exerciseId.startsWith('mov_');
+          const movId = exSession.exerciseId.replace('mov_', '');
+
+          const exerciseDef = isMovement
+            ? (data.movements || []).find(m => m.id === movId)
+            : data.exercises.find(e => e.id === exSession.exerciseId);
+
           if (!exerciseDef) return null;
 
-          const equipmentNames = exerciseDef.equipmentIds
-            ?.map(id => data.equipment.find(eq => eq.id === id)?.name)
-            .filter(Boolean)
-            .join(', ');
+          const equipmentNames = !isMovement && 'equipmentIds' in exerciseDef
+            ? exerciseDef.equipmentIds
+              ?.map(id => data.equipment.find(eq => eq.id === id)?.name)
+              .filter(Boolean)
+              .join(', ')
+            : '';
 
           return (
             <div
@@ -1104,7 +1120,8 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
 
                 {/* Exercise Info */}
                 <div className="flex-1 min-w-0">
-                  <h3 className={`font-bold ${exSession.completed ? 'text-green-700' : 'text-slate-900'}`}>
+                  <h3 className={`font-bold flex items-center gap-1.5 ${exSession.completed ? 'text-green-700' : isMovement ? 'text-emerald-800' : 'text-slate-900'}`}>
+                    {isMovement && <Move size={14} className="text-emerald-600 shrink-0" />}
                     {exerciseDef.name}
                   </h3>
 
@@ -1278,24 +1295,20 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
         })}
       </div>
 
-      {/* Add Exercise Dropdown */}
+      {/* Add Exercise/Movement Button */}
       <div className="mt-4">
-        <select
-          className="w-full p-4 bg-white border-2 border-dashed border-slate-300 rounded-xl text-slate-600 outline-none hover:border-brand-400 transition-colors cursor-pointer"
-          onChange={(e) => {
-            if (e.target.value) {
-              addExerciseToSession(e.target.value);
-              e.target.value = '';
-            }
+        <button
+          onClick={() => {
+            setPickerSelectedIds([]);
+            setExerciseSearchQuery('');
+            setPickerTab('exercises');
+            setIsExercisePickerOpen(true);
           }}
-          defaultValue=""
+          className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-400 hover:border-brand-400 hover:text-brand-600 hover:bg-brand-50 transition-all flex items-center justify-center"
+          title="Egzersiz veya hareket ekle"
         >
-          <option value="" disabled>+ Egzersiz Ekle</option>
-          {data.exercises
-            .filter(e => !sessionExercises.find(se => se.exerciseId === e.id))
-            .map(e => <option key={e.id} value={e.id}>{e.name}</option>)
-          }
-        </select>
+          <Plus size={28} />
+        </button>
       </div>
 
       {/* Media Section */}
@@ -1374,6 +1387,221 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
           placeholder="Bugün nasıl hissettin? Antrenman hakkında notlar..."
         />
       </div>
+
+      {/* Full-screen Exercise/Movement Picker Modal */}
+      {isExercisePickerOpen && (
+        <div className="fixed inset-0 bg-white z-[60] flex flex-col animate-in slide-in-from-bottom duration-200">
+          {/* Header */}
+          <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+            <button
+              onClick={() => { setIsExercisePickerOpen(false); setPickerTab('exercises'); }}
+              className="p-2 -ml-2 text-slate-500 hover:text-slate-700"
+            >
+              <X size={24} />
+            </button>
+            <h2 className="text-lg font-bold text-slate-900">İçerik Ekle</h2>
+            <div className="w-10" />
+          </div>
+
+          {/* Tab Buttons */}
+          <div className="px-4 py-2 bg-slate-100 border-b border-slate-200">
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setPickerTab('exercises'); setExerciseSearchQuery(''); setPickerSelectedIds([]); }}
+                className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-all flex items-center justify-center gap-2 ${pickerTab === 'exercises'
+                  ? 'bg-white text-brand-700 shadow-sm border border-brand-200'
+                  : 'text-slate-600 hover:bg-white/50'
+                  }`}
+              >
+                <Dumbbell size={16} />
+                <span>Egzersizlerim</span>
+              </button>
+              <button
+                onClick={() => { setPickerTab('movements'); setExerciseSearchQuery(''); setPickerSelectedIds([]); }}
+                className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-all flex items-center justify-center gap-2 ${pickerTab === 'movements'
+                  ? 'bg-white text-emerald-700 shadow-sm border border-emerald-200'
+                  : 'text-slate-600 hover:bg-white/50'
+                  }`}
+              >
+                <Move size={16} />
+                <span>Hareketlerim</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Search */}
+          <div className={`px-4 py-3 border-b ${pickerTab === 'exercises' ? 'bg-brand-50 border-brand-200' : 'bg-emerald-50 border-emerald-200'}`}>
+            <div className="relative">
+              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={exerciseSearchQuery}
+                onChange={(e) => setExerciseSearchQuery(e.target.value)}
+                placeholder={pickerTab === 'exercises' ? "Egzersiz ara..." : "Hareket ara..."}
+                className={`w-full pl-10 pr-4 py-2.5 border rounded-xl bg-white text-sm focus:outline-none focus:ring-2 ${pickerTab === 'exercises'
+                  ? 'border-brand-200 focus:ring-brand-500'
+                  : 'border-emerald-200 focus:ring-emerald-500'
+                  } focus:border-transparent`}
+              />
+            </div>
+          </div>
+
+          {/* Content Grid */}
+          <div className="flex-1 overflow-y-auto p-4">
+            {/* Exercises Tab */}
+            {pickerTab === 'exercises' && (
+              <>
+                {data.exercises.length === 0 ? (
+                  <div className="text-center py-12 text-slate-500">
+                    <Dumbbell size={48} className="mx-auto mb-3 text-slate-300" />
+                    <p className="font-medium">Henüz egzersiz eklenmemiş</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {data.exercises
+                      .filter(ex => !sessionExercises.find(se => se.exerciseId === ex.id))
+                      .filter(ex => exerciseSearchQuery === '' || ex.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()))
+                      .map(exercise => {
+                        const isSelected = pickerSelectedIds.includes(exercise.id);
+                        return (
+                          <button
+                            key={exercise.id}
+                            onClick={() => {
+                              if (isSelected) {
+                                setPickerSelectedIds(prev => prev.filter(id => id !== exercise.id));
+                              } else {
+                                setPickerSelectedIds(prev => [...prev, exercise.id]);
+                              }
+                            }}
+                            className={`relative p-3 rounded-xl border-2 text-left transition-all ${isSelected
+                              ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-200'
+                              : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                              }`}
+                          >
+                            {isSelected && (
+                              <div className="absolute top-2 right-2 w-5 h-5 bg-brand-500 rounded-full flex items-center justify-center">
+                                <Check size={12} className="text-white" />
+                              </div>
+                            )}
+                            <h3 className={`font-bold text-sm ${isSelected ? 'text-brand-800' : 'text-slate-800'}`}>
+                              {exercise.name}
+                            </h3>
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {exercise.defaultSets && <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">{exercise.defaultSets} set</span>}
+                              {exercise.defaultReps && <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">{exercise.defaultReps} tekrar</span>}
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Movements Tab */}
+            {pickerTab === 'movements' && (
+              <>
+                {(data.movements || []).length === 0 ? (
+                  <div className="text-center py-12 text-slate-500">
+                    <Move size={48} className="mx-auto mb-3 text-slate-300" />
+                    <p className="font-medium">Henüz hareket eklenmemiş</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {(data.movements || [])
+                      .filter(mov => exerciseSearchQuery === '' || mov.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()))
+                      .map(movement => {
+                        const isSelected = pickerSelectedIds.includes(`mov_${movement.id}`);
+                        return (
+                          <button
+                            key={movement.id}
+                            onClick={() => {
+                              const movId = `mov_${movement.id}`;
+                              if (isSelected) {
+                                setPickerSelectedIds(prev => prev.filter(id => id !== movId));
+                              } else {
+                                setPickerSelectedIds(prev => [...prev, movId]);
+                              }
+                            }}
+                            className={`relative p-3 rounded-xl border-2 text-left transition-all ${isSelected
+                              ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200'
+                              : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                              }`}
+                          >
+                            {isSelected && (
+                              <div className="absolute top-2 right-2 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center">
+                                <Check size={12} className="text-white" />
+                              </div>
+                            )}
+                            <h3 className={`font-bold text-sm ${isSelected ? 'text-emerald-800' : 'text-slate-800'}`}>
+                              {movement.name}
+                            </h3>
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {movement.defaultSets && <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded">{movement.defaultSets} set</span>}
+                              {movement.defaultReps && <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded">{movement.defaultReps} tekrar</span>}
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Bottom action bar */}
+          <div className={`border-t bg-white px-4 py-3 safe-area-inset-bottom ${pickerTab === 'exercises' ? 'border-brand-200' : 'border-emerald-200'}`}>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 text-sm text-slate-600">
+                {pickerSelectedIds.length > 0 ? (
+                  <span className={`font-medium ${pickerTab === 'exercises' ? 'text-brand-600' : 'text-emerald-600'}`}>
+                    {pickerSelectedIds.length} seçildi
+                  </span>
+                ) : (
+                  <span>Seçim yapın</span>
+                )}
+              </div>
+              <Button
+                onClick={() => {
+                  // Seçilen egzersiz ve hareketleri ekle
+                  pickerSelectedIds.forEach(id => {
+                    if (id.startsWith('mov_')) {
+                      // Hareket ekleme - şimdilik basit tutuyoruz
+                      const movId = id.replace('mov_', '');
+                      const mov = (data.movements || []).find(m => m.id === movId);
+                      if (mov) {
+                        // Hareket için geçici egzersiz olarak ekle
+                        const targetTime = mov.defaultTimeSeconds;
+                        if (targetTime && targetTime > 0) {
+                          setSessionExercises(prev => [...prev, {
+                            exerciseId: id,
+                            completed: false,
+                            note: '',
+                            timerRemaining: targetTime,
+                            timerRunning: false
+                          }]);
+                        } else {
+                          setSessionExercises(prev => [...prev, { exerciseId: id, completed: true, note: '' }]);
+                        }
+                      }
+                    } else {
+                      // Normal egzersiz ekleme
+                      addExerciseToSession(id);
+                    }
+                  });
+                  setIsExercisePickerOpen(false);
+                  setPickerSelectedIds([]);
+                  setPickerTab('exercises');
+                }}
+                disabled={pickerSelectedIds.length === 0}
+                className={`px-6 ${pickerTab === 'movements' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}`}
+              >
+                Ekle ({pickerSelectedIds.length})
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div >
   );
 };

@@ -55,6 +55,7 @@ export type RoutineCategory = 'Full Body' | 'Bacak' | 'Kol' | 'Göğüs' | 'Sır
 
 export interface RoutineExercise {
   exerciseId: string;
+  movementId?: string; // Doğrudan hareket seçildiğinde kullanılır
   targetSets?: number;
   targetReps?: number;
   targetWeight?: number; // Optional target weight
