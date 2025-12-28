@@ -55,8 +55,8 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
   const [newItemDefaultWeight, setNewItemDefaultWeight] = useState<number | undefined>(undefined);
   const [selectedEffectAreas, setSelectedEffectAreas] = useState<MovementEffectArea[]>([]);
 
-  // Exercise specific - hareket seçimi
-  const [selectedMovementId, setSelectedMovementId] = useState<string>('');
+  // Exercise specific - hareket seçimi (çoklu seçim desteği)
+  const [selectedMovementIds, setSelectedMovementIds] = useState<string[]>([]);
   const [isMovementPickerOpen, setIsMovementPickerOpen] = useState(false);
   const [movementSearchQuery, setMovementSearchQuery] = useState('');
 
@@ -191,26 +191,36 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
       }
 
     } else if (activeTab === 'exercises') {
-      // Hareket seçilmediyse uyar
-      if (!selectedMovementId) {
-        setFormError("Lütfen bir hareket seçiniz.");
+      // En az bir hareket seçilmeli
+      if (selectedMovementIds.length === 0) {
+        setFormError("Lütfen en az bir hareket seçiniz.");
         return;
       }
 
-      const selectedMovement = (data.movements || []).find(m => m.id === selectedMovementId);
+      // Seçilen hareketleri al
+      const selectedMovements = selectedMovementIds
+        .map(id => (data.movements || []).find(m => m.id === id))
+        .filter(Boolean) as Movement[];
+
+      // İlk hareketten varsayılan değerler al
+      const firstMovement = selectedMovements[0];
+
+      // Tüm hareketlerin ekipmanlarını birleştir
+      const allEquipmentIds = [...new Set(selectedMovements.flatMap(m => m.equipmentIds || []))];
 
       const newExercise: Exercise = {
         id,
-        name: newItemName || selectedMovement?.name || 'Egzersiz',
+        name: newItemName || selectedMovements.map(m => m.name).join(' + ') || 'Egzersiz',
         description: newItemDesc,
-        equipmentIds: selectedMovement?.equipmentIds || [],
-        media: selectedMovement?.media,
-        movementId: selectedMovementId,
-        // Hareketten gelen varsayılan değerler
-        defaultSets: selectedMovement?.defaultSets,
-        defaultReps: selectedMovement?.defaultReps,
-        defaultTimeSeconds: selectedMovement?.defaultTimeSeconds,
-        defaultWeight: selectedMovement?.defaultWeight
+        equipmentIds: allEquipmentIds,
+        media: firstMovement?.media,
+        movementId: firstMovement?.id, // geriye dönük uyumluluk
+        movementIds: selectedMovementIds,
+        // İlk hareketten gelen varsayılan değerler
+        defaultSets: firstMovement?.defaultSets,
+        defaultReps: firstMovement?.defaultReps,
+        defaultTimeSeconds: firstMovement?.defaultTimeSeconds,
+        defaultWeight: firstMovement?.defaultWeight
       };
 
       if (editingId) {
@@ -258,7 +268,9 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
     else if (activeTab === 'exercises') {
       const ex = item as Exercise;
       setNewItemDesc(ex.description || '');
-      setSelectedMovementId(ex.movementId || '');
+      // Çoklu hareket desteği - önce movementIds'e bak, yoksa movementId kullan
+      const ids = ex.movementIds || (ex.movementId ? [ex.movementId] : []);
+      setSelectedMovementIds(ids);
     }
     else if (activeTab === 'routines') {
       const rt = item as Routine;
@@ -285,7 +297,7 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
     setSelectedEquipmentIds([]);
     setSelectedRoutineExercises([]);
     setTempExerciseId('');
-    setSelectedMovementId('');
+    setSelectedMovementIds([]);
     setMovementSearchQuery('');
     setSelectedEffectAreas([]);
     setFormError(null);
@@ -910,41 +922,48 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                       <span>Hareket Seç</span>
                     </div>
 
-                    {selectedMovementId ? (
-                      <div className="bg-white p-3 rounded-lg border border-brand-200">
-                        {(() => {
-                          const mov = (data.movements || []).find(m => m.id === selectedMovementId);
-                          if (!mov) return <p className="text-sm text-slate-500">Hareket bulunamadı</p>;
+                    {/* Seçilen Hareketler Listesi */}
+                    {selectedMovementIds.length > 0 && (
+                      <div className="space-y-2 mb-3">
+                        {selectedMovementIds.map((movId, idx) => {
+                          const mov = (data.movements || []).find(m => m.id === movId);
+                          if (!mov) return null;
                           return (
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-slate-800">{mov.name}</span>
-                                  {mov.media && <MediaButtons media={[mov.media]} compact />}
+                            <div key={movId} className="bg-white p-2.5 rounded-lg border border-brand-200 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-brand-600 bg-brand-100 rounded-full w-5 h-5 flex items-center justify-center">{idx + 1}</span>
+                                <div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-medium text-slate-800 text-sm">{mov.name}</span>
+                                    {mov.media && <MediaButtons media={[mov.media]} compact />}
+                                  </div>
+                                  <span className="text-[10px] text-slate-500">
+                                    {[mov.defaultSets && `${mov.defaultSets} set`, mov.defaultReps && `${mov.defaultReps} tekrar`, mov.defaultWeight && `${mov.defaultWeight}kg`].filter(Boolean).join(' • ') || 'Hedef yok'}
+                                  </span>
                                 </div>
-                                <span className="text-xs text-slate-500">
-                                  {[mov.defaultSets && `${mov.defaultSets} set`, mov.defaultReps && `${mov.defaultReps} tekrar`, mov.defaultWeight && `${mov.defaultWeight}kg`].filter(Boolean).join(' • ') || 'Hedef yok'}
-                                </span>
                               </div>
                               <button
-                                onClick={() => setSelectedMovementId('')}
+                                onClick={() => setSelectedMovementIds(prev => prev.filter(id => id !== movId))}
                                 className="text-slate-400 hover:text-red-500 p-1"
+                                title="Kaldır"
                               >
-                                <X size={16} />
+                                <X size={14} />
                               </button>
                             </div>
                           );
-                        })()}
+                        })}
+                        <p className="text-xs text-brand-600 font-medium">{selectedMovementIds.length} hareket seçildi</p>
                       </div>
-                    ) : (
-                      <button
-                        onClick={() => setIsMovementPickerOpen(true)}
-                        className="w-full p-3 border-2 border-dashed border-brand-300 rounded-lg text-brand-600 hover:border-brand-400 hover:bg-brand-100 transition-all flex items-center justify-center gap-2 font-medium"
-                      >
-                        <Plus size={18} />
-                        <span>Hareketlerimden Seç</span>
-                      </button>
                     )}
+
+                    {/* Hareket Ekleme Butonu */}
+                    <button
+                      onClick={() => setIsMovementPickerOpen(true)}
+                      className="w-full p-3 border-2 border-dashed border-brand-300 rounded-lg text-brand-600 hover:border-brand-400 hover:bg-brand-100 transition-all flex items-center justify-center gap-2 font-medium"
+                    >
+                      <Plus size={18} />
+                      <span>{selectedMovementIds.length > 0 ? 'Daha Fazla Hareket Ekle' : 'Hareketlerimden Seç'}</span>
+                    </button>
 
                     {(data.movements || []).length === 0 && (
                       <p className="text-[10px] text-amber-600 mt-2 leading-tight">
@@ -1484,13 +1503,13 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
         </div>
       )}
 
-      {/* Full-screen Movement Picker Modal */}
+      {/* Full-screen Movement Picker Modal (Çoklu Seçim) */}
       {isMovementPickerOpen && (
         <div className="fixed inset-0 bg-white z-[60] flex flex-col animate-in slide-in-from-bottom duration-200">
           {/* Header */}
           <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
             <button
-              onClick={() => setIsMovementPickerOpen(false)}
+              onClick={() => { setIsMovementPickerOpen(false); setMovementSearchQuery(''); }}
               className="p-2 -ml-2 text-slate-500 hover:text-slate-700"
             >
               <X size={24} />
@@ -1525,54 +1544,67 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
               <div className="grid grid-cols-2 gap-3">
                 {(data.movements || [])
                   .filter(mov => movementSearchQuery === '' || mov.name.toLowerCase().includes(movementSearchQuery.toLowerCase()))
-                  .map(movement => (
-                    <button
-                      key={movement.id}
-                      onClick={() => {
-                        setSelectedMovementId(movement.id);
-                        setNewItemName(movement.name);
-                        setIsMovementPickerOpen(false);
-                        setMovementSearchQuery('');
-                      }}
-                      className="relative p-3 rounded-xl border-2 border-slate-200 bg-white hover:border-emerald-300 hover:shadow-sm text-left transition-all"
-                    >
-                      {/* Movement info */}
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <h3 className="font-bold text-sm text-slate-800">
-                          {movement.name}
-                        </h3>
-                        {movement.media && (
-                          <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-                            <MediaButtons media={[movement.media]} compact />
+                  .map(movement => {
+                    const isSelected = selectedMovementIds.includes(movement.id);
+                    return (
+                      <button
+                        key={movement.id}
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedMovementIds(prev => prev.filter(id => id !== movement.id));
+                          } else {
+                            setSelectedMovementIds(prev => [...prev, movement.id]);
+                          }
+                        }}
+                        className={`relative p-3 rounded-xl border-2 text-left transition-all ${isSelected
+                          ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200'
+                          : 'border-slate-200 bg-white hover:border-emerald-300 hover:shadow-sm'
+                          }`}
+                      >
+                        {/* Selection indicator */}
+                        {isSelected && (
+                          <div className="absolute top-2 right-2 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center">
+                            <Check size={12} className="text-white" />
                           </div>
                         )}
-                      </div>
+                        {/* Movement info */}
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <h3 className={`font-bold text-sm ${isSelected ? 'text-emerald-800' : 'text-slate-800'}`}>
+                            {movement.name}
+                          </h3>
+                          {movement.media && (
+                            <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                              <MediaButtons media={[movement.media]} compact />
+                            </div>
+                          )}
+                        </div>
 
-                      {/* Default targets preview */}
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {movement.defaultSets && (
-                          <span className="text-[10px] px-1.5 py-0.5 bg-emerald-50 text-emerald-600 rounded">
-                            {movement.defaultSets} set
-                          </span>
-                        )}
-                        {movement.defaultReps && (
-                          <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">
-                            {movement.defaultReps} tekrar
-                          </span>
-                        )}
-                        {movement.defaultWeight && (
-                          <span className="text-[10px] px-1.5 py-0.5 bg-purple-50 text-purple-600 rounded">
-                            {movement.defaultWeight}kg
-                          </span>
-                        )}
-                        {movement.defaultTimeSeconds && (
-                          <span className="text-[10px] px-1.5 py-0.5 bg-amber-50 text-amber-600 rounded">
-                            {Math.floor(movement.defaultTimeSeconds / 60) > 0 ? `${Math.floor(movement.defaultTimeSeconds / 60)}dk ` : ''}{movement.defaultTimeSeconds % 60 > 0 ? `${movement.defaultTimeSeconds % 60}sn` : ''}
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  ))}
+                        {/* Default targets preview */}
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {movement.defaultSets && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${isSelected ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-50 text-emerald-600'}`}>
+                              {movement.defaultSets} set
+                            </span>
+                          )}
+                          {movement.defaultReps && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${isSelected ? 'bg-blue-100 text-blue-700' : 'bg-blue-50 text-blue-600'}`}>
+                              {movement.defaultReps} tekrar
+                            </span>
+                          )}
+                          {movement.defaultWeight && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${isSelected ? 'bg-purple-100 text-purple-700' : 'bg-purple-50 text-purple-600'}`}>
+                              {movement.defaultWeight}kg
+                            </span>
+                          )}
+                          {movement.defaultTimeSeconds && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${isSelected ? 'bg-amber-100 text-amber-700' : 'bg-amber-50 text-amber-600'}`}>
+                              {Math.floor(movement.defaultTimeSeconds / 60) > 0 ? `${Math.floor(movement.defaultTimeSeconds / 60)}dk ` : ''}{movement.defaultTimeSeconds % 60 > 0 ? `${movement.defaultTimeSeconds % 60}sn` : ''}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
               </div>
             )}
 
@@ -1587,6 +1619,30 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                   <p className="text-sm mt-1">Farklı bir arama terimi deneyin.</p>
                 </div>
               )}
+          </div>
+
+          {/* Bottom action bar */}
+          <div className="border-t border-emerald-200 bg-white px-4 py-3 safe-area-inset-bottom">
+            <div className="flex items-center gap-3">
+              <div className="flex-1 text-sm text-slate-600">
+                {selectedMovementIds.length > 0 ? (
+                  <span className="font-medium text-emerald-600">
+                    {selectedMovementIds.length} hareket seçildi
+                  </span>
+                ) : (
+                  <span>Hareket seçin</span>
+                )}
+              </div>
+              <Button
+                onClick={() => {
+                  setIsMovementPickerOpen(false);
+                  setMovementSearchQuery('');
+                }}
+                className="px-6 bg-emerald-600 hover:bg-emerald-700"
+              >
+                Tamam ({selectedMovementIds.length})
+              </Button>
+            </div>
           </div>
         </div>
       )}

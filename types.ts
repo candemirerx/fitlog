@@ -42,7 +42,8 @@ export interface Exercise {
   trackingType?: TrackingType; // Optional - artık kullanılmıyor, geriye dönük uyumluluk için
 
   // Hareket referansı - yeni sistem
-  movementId?: string;
+  movementId?: string; // geriye dönük uyumluluk için
+  movementIds?: string[]; // Birden fazla hareket desteği
 
   // Default targets for Free Workout auto-population (eski sistem - geriye dönük uyumluluk)
   defaultSets?: number;
