@@ -1,8 +1,18 @@
 import React, { useState } from 'react';
-import { WorkoutLog, AppData, WorkoutSet } from '../types';
+import { WorkoutLog, AppData, WorkoutSet, MovementEffectArea } from '../types';
 import { Button } from '../components/Button';
-import { Download, Calendar, Activity, ChevronDown, ChevronRight, Clock, Timer, X, Dumbbell, Target, Trash2 } from 'lucide-react';
+import { Download, Calendar, Activity, ChevronDown, ChevronRight, Clock, Timer, X, Dumbbell, Target, Trash2, Move, Package } from 'lucide-react';
 import { MediaButtons } from './ActiveWorkout';
+
+// Etki Alanları tanımları
+const EFFECT_AREAS: { key: MovementEffectArea; label: string; emoji: string }[] = [
+  { key: 'stretching', label: 'Açma', emoji: '🔓' },
+  { key: 'balance', label: 'Denge', emoji: '⚖️' },
+  { key: 'breathing', label: 'Nefes', emoji: '🌬️' },
+  { key: 'strength', label: 'Kas Kuvvet', emoji: '💪' },
+  { key: 'cardio', label: 'Kardiyo', emoji: '❤️' },
+  { key: 'flexibility', label: 'Germe', emoji: '🧘' },
+];
 
 interface LogbookProps {
   data: AppData;
@@ -12,6 +22,7 @@ interface LogbookProps {
 export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [expandedExercises, setExpandedExercises] = useState<Set<string>>(new Set());
+  const [expandedMovements, setExpandedMovements] = useState<Set<string>>(new Set());
 
   const sortedLogs = [...data.logs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -23,6 +34,7 @@ export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
     if (expandedLogId === id) {
       setExpandedLogId(null);
       setExpandedExercises(new Set());
+      setExpandedMovements(new Set());
     } else {
       setExpandedLogId(id);
     }
@@ -31,6 +43,18 @@ export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
   const toggleExercise = (logId: string, exerciseIdx: number) => {
     const key = `${logId}-${exerciseIdx}`;
     setExpandedExercises(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const toggleMovement = (key: string) => {
+    setExpandedMovements(prev => {
       const next = new Set(prev);
       if (next.has(key)) {
         next.delete(key);
@@ -250,19 +274,132 @@ export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
                     <div className="p-4 space-y-2">
                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Egzersizler</p>
                       {log.exercises.map((ex, idx) => {
-                        const def = getExerciseDef(ex.exerciseId);
+                        // Hareket mi egzersiz mi kontrol et
+                        const isMovement = ex.exerciseId.startsWith('mov_');
+                        const movId = ex.exerciseId.replace('mov_', '');
+
+                        // Tanımı al
+                        const def = isMovement
+                          ? (data.movements || []).find(m => m.id === movId)
+                          : data.exercises.find(e => e.id === ex.exerciseId);
+
                         const isExerciseExpanded = expandedExercises.has(`${log.id}-${idx}`);
                         const set = ex.sets[0];
-                        const equipmentNames = def?.equipmentIds
-                          ?.map(id => data.equipment.find(eq => eq.id === id)?.name)
-                          .filter(Boolean)
-                          .join(', ');
 
+                        // Set/tekrar özet
+                        const targetSummary = [
+                          ex.sets.length > 0 && `${ex.sets.length} set`,
+                          set?.reps && `${set.reps} tekrar`,
+                          set?.weight && `${set.weight}kg`,
+                          set?.timeSeconds && formatTimeDetailed(set.timeSeconds)
+                        ].filter(Boolean).join(' • ');
+
+                        // Egzersizin içindeki hareketler (sadece egzersizler için)
+                        const exerciseMovements = !isMovement && def && 'movementIds' in def
+                          ? (def.movementIds || []).map(mId => (data.movements || []).find(m => m.id === mId)).filter(Boolean)
+                          : !isMovement && def && 'movementId' in def && def.movementId
+                            ? [(data.movements || []).find(m => m.id === def.movementId)].filter(Boolean)
+                            : [];
+
+                        const exerciseKey = `${log.id}-${idx}`;
+
+                        // Ekipman isimleri
+                        const equipmentNames = def && 'equipmentIds' in def
+                          ? (def.equipmentIds || [])
+                            .map(id => data.equipment.find(eq => eq.id === id)?.name)
+                            .filter(Boolean)
+                            .join(', ')
+                          : '';
+
+                        // Doğrudan hareket eklendiyse farklı göster
+                        if (isMovement && def) {
+                          const movDef = def as any; // Movement type
+                          const movUniqueId = `mov_${log.id}_${idx}`;
+                          const isMovExpanded = expandedExercises.has(`${log.id}-${idx}`);
+
+                          return (
+                            <div key={idx} className={`bg-emerald-50 rounded-lg border overflow-hidden transition-all ${isMovExpanded ? 'border-emerald-400 ring-1 ring-emerald-200' : 'border-emerald-200'}`}>
+                              {/* Hareket Header */}
+                              <div
+                                onClick={() => toggleExercise(log.id, idx)}
+                                className="p-3 cursor-pointer flex items-center justify-between hover:bg-emerald-100/50 transition-colors"
+                              >
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  <div className={`p-1 rounded transition-transform duration-200 shrink-0 ${isMovExpanded ? 'rotate-90 bg-emerald-200' : 'bg-emerald-100'}`}>
+                                    <ChevronRight size={12} className="text-emerald-600" />
+                                  </div>
+                                  <Move size={14} className="text-emerald-600 shrink-0" />
+                                  {movDef.media && <MediaButtons media={[movDef.media]} compact />}
+                                  <div className="min-w-0">
+                                    <span className="font-medium text-emerald-800">{movDef.name}</span>
+                                    {targetSummary && (
+                                      <span className="text-[10px] text-emerald-600 ml-2">• {targetSummary}</span>
+                                    )}
+                                  </div>
+                                </div>
+                                {/* Etki alanları mini */}
+                                <div className="flex gap-0.5 shrink-0">
+                                  {(movDef.effectAreas || []).slice(0, 2).map((areaKey: string) => {
+                                    const area = EFFECT_AREAS.find(a => a.key === areaKey);
+                                    return area ? <span key={areaKey} className="text-[10px]">{area.emoji}</span> : null;
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Hareket Detayları */}
+                              {isMovExpanded && (
+                                <div className="px-3 pb-3 border-t border-emerald-200 bg-emerald-50/50 animate-in slide-in-from-top-1 duration-150">
+                                  {/* Etki Alanları */}
+                                  {(movDef.effectAreas || []).length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-2">
+                                      {(movDef.effectAreas || []).map((areaKey: string) => {
+                                        const area = EFFECT_AREAS.find(a => a.key === areaKey);
+                                        if (!area) return null;
+                                        return (
+                                          <span key={areaKey} className="text-[9px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded border border-amber-200">
+                                            {area.emoji} {area.label}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+
+                                  {/* Açıklama */}
+                                  {movDef.description && (
+                                    <p className="text-[10px] text-slate-600 mt-2 italic leading-relaxed">{movDef.description}</p>
+                                  )}
+
+                                  {/* Ekipmanlar */}
+                                  {(movDef.equipmentIds || []).length > 0 && (
+                                    <div className="mt-2 pt-2 border-t border-emerald-200">
+                                      <div className="flex items-center gap-1 text-[9px] text-slate-500 mb-1">
+                                        <Package size={9} />
+                                        <span className="font-medium">Ekipmanlar:</span>
+                                      </div>
+                                      <div className="flex flex-wrap gap-1">
+                                        {(movDef.equipmentIds || []).map((eqId: string) => {
+                                          const eq = data.equipment.find(e => e.id === eqId);
+                                          if (!eq) return null;
+                                          return (
+                                            <span key={eqId} className="inline-flex items-center gap-1 text-[9px] bg-white text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
+                                              {eq.name}
+                                            </span>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        // Egzersiz gösterimi
                         return (
                           <div
                             key={idx}
-                            className={`bg-white rounded-lg border overflow-hidden transition-all ${isExerciseExpanded ? 'border-brand-200 shadow-md' : 'border-slate-200 shadow-sm'
-                              }`}
+                            className={`bg-white rounded-lg border overflow-hidden transition-all ${isExerciseExpanded ? 'border-brand-200 shadow-md' : 'border-slate-200 shadow-sm'}`}
                           >
                             {/* Exercise Header - Toggle */}
                             <button
@@ -279,29 +416,17 @@ export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
                               <div className="flex-1 min-w-0">
                                 <div className="font-medium text-slate-800 flex items-center gap-2">
                                   {def?.name || 'Bilinmeyen Egzersiz'}
+                                  {exerciseMovements.length > 0 && (
+                                    <span className="text-[10px] px-1.5 py-0.5 bg-emerald-50 text-emerald-600 rounded flex items-center gap-0.5">
+                                      <Move size={9} /> {exerciseMovements.length}
+                                    </span>
+                                  )}
                                 </div>
 
-                                {/* Quick Summary - Kapalı */}
-                                {!isExerciseExpanded && (
-                                  <div className="flex flex-wrap gap-1.5 mt-1">
-                                    <span className="text-[10px] px-1.5 py-0.5 bg-brand-50 text-brand-700 rounded">
-                                      {ex.sets.length} set
-                                    </span>
-                                    {set?.reps && (
-                                      <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded">
-                                        {set.reps} tekrar
-                                      </span>
-                                    )}
-                                    {set?.weight && (
-                                      <span className="text-[10px] px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded">
-                                        {set.weight} kg
-                                      </span>
-                                    )}
-                                    {set?.timeSeconds && (
-                                      <span className="text-[10px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded">
-                                        {formatTimeDetailed(set.timeSeconds)}
-                                      </span>
-                                    )}
+                                {/* Quick Summary */}
+                                {!isExerciseExpanded && targetSummary && (
+                                  <div className="text-[11px] text-slate-500 mt-0.5">
+                                    {targetSummary}
                                   </div>
                                 )}
                               </div>
@@ -312,59 +437,134 @@ export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
                             {/* Expanded Details */}
                             {isExerciseExpanded && (
                               <div className="px-4 pb-3 pt-2 border-t border-slate-100 bg-slate-50/50 animate-in slide-in-from-top-1 duration-150">
-                                {/* Hedef Etiketleri */}
-                                <div className="flex flex-wrap gap-2 mb-3">
-                                  <div className="bg-white p-2 rounded-lg border border-slate-200 text-center min-w-[60px]">
-                                    <div className="flex items-center justify-center gap-1 text-brand-600 mb-0.5">
-                                      <Target size={12} />
-                                    </div>
-                                    <span className="text-sm font-bold text-slate-800">{ex.sets.length} set</span>
-                                  </div>
-                                  {set?.reps && (
-                                    <div className="bg-white p-2 rounded-lg border border-slate-200 text-center min-w-[60px]">
-                                      <div className="flex items-center justify-center gap-1 text-blue-600 mb-0.5">
-                                        <Dumbbell size={12} />
-                                      </div>
-                                      <span className="text-sm font-bold text-slate-800">{set.reps} tekrar</span>
-                                    </div>
-                                  )}
-                                  {set?.weight && (
-                                    <div className="bg-white p-2 rounded-lg border border-slate-200 text-center min-w-[60px]">
-                                      <div className="flex items-center justify-center gap-1 text-purple-600 mb-0.5">
-                                        <Dumbbell size={12} />
-                                      </div>
-                                      <span className="text-sm font-bold text-slate-800">{set.weight} kg</span>
-                                    </div>
-                                  )}
-                                  {set?.timeSeconds && (
-                                    <div className="bg-white p-2 rounded-lg border border-slate-200 text-center min-w-[80px]">
-                                      <div className="flex items-center justify-center gap-1 text-amber-600 mb-0.5">
-                                        <Timer size={12} />
-                                      </div>
-                                      <span className="text-sm font-bold text-slate-800">
+                                {/* Kompakt hedef bilgileri */}
+                                {targetSummary && (
+                                  <div className="flex flex-wrap gap-1.5 mb-2">
+                                    {ex.sets.length > 0 && <span className="text-[10px] px-2 py-0.5 bg-brand-50 text-brand-700 rounded-full">{ex.sets.length} set</span>}
+                                    {set?.reps && <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full">{set.reps} tekrar</span>}
+                                    {set?.weight && <span className="text-[10px] px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full">{set.weight}kg</span>}
+                                    {set?.timeSeconds && (
+                                      <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full">
                                         {ex.actualDurationSeconds ? (
-                                          <>
-                                            <span className="text-green-600">{formatTimeDetailed(ex.actualDurationSeconds)}</span>
-                                            <span className="text-[10px] text-slate-400 block">/ {formatTimeDetailed(set.timeSeconds)}</span>
-                                          </>
+                                          <>{formatTimeDetailed(ex.actualDurationSeconds)} <span className="opacity-60">/ {formatTimeDetailed(set.timeSeconds)}</span></>
                                         ) : (
                                           formatTimeDetailed(set.timeSeconds)
                                         )}
                                       </span>
-                                    </div>
-                                  )}
-                                </div>
+                                    )}
+                                  </div>
+                                )}
 
                                 {/* Ekipman */}
                                 {equipmentNames && (
-                                  <div className="text-xs text-slate-500 mb-2">
+                                  <div className="text-[10px] text-slate-500 mb-2">
                                     <span className="font-medium">Ekipman:</span> {equipmentNames}
                                   </div>
                                 )}
 
                                 {/* Açıklama */}
                                 {def?.description && (
-                                  <p className="text-xs text-slate-500 italic">{def.description}</p>
+                                  <p className="text-[10px] text-slate-500 italic">{def.description}</p>
+                                )}
+
+                                {/* Hareketler Listesi */}
+                                {exerciseMovements.length > 0 && (
+                                  <div className="mt-3 pt-3 border-t border-slate-200">
+                                    <p className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wide flex items-center gap-1 mb-2">
+                                      <Move size={10} /> Hareketler
+                                    </p>
+                                    <div className="space-y-1.5">
+                                      {exerciseMovements.map((mov: any, mIdx) => {
+                                        const movKey = `${exerciseKey}_mov_${mIdx}`;
+                                        const isMovExpanded = expandedMovements.has(movKey);
+
+                                        // Hareket hedef özeti
+                                        const movTargetSummary = [
+                                          mov.defaultSets && `${mov.defaultSets} set`,
+                                          mov.defaultReps && `${mov.defaultReps} tekrar`,
+                                          mov.defaultWeight && `${mov.defaultWeight}kg`,
+                                          mov.defaultTimeSeconds && formatTimeDetailed(mov.defaultTimeSeconds)
+                                        ].filter(Boolean).join(' • ');
+
+                                        return (
+                                          <div key={mIdx} className={`bg-white rounded border overflow-hidden transition-all ${isMovExpanded ? 'border-emerald-300' : 'border-emerald-100'}`}>
+                                            {/* Hareket Header */}
+                                            <div
+                                              onClick={(e) => { e.stopPropagation(); toggleMovement(movKey); }}
+                                              className="p-2 cursor-pointer flex items-center justify-between hover:bg-emerald-50/50 transition-colors"
+                                            >
+                                              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                                <div className={`p-0.5 rounded transition-transform duration-200 shrink-0 ${isMovExpanded ? 'rotate-90 bg-emerald-100' : 'bg-emerald-50'}`}>
+                                                  <ChevronRight size={10} className="text-emerald-500" />
+                                                </div>
+                                                {mov.media && <MediaButtons media={[mov.media]} compact />}
+                                                <div className="min-w-0">
+                                                  <span className="text-sm font-medium text-emerald-800">{mov.name}</span>
+                                                  {movTargetSummary && (
+                                                    <span className="text-[9px] text-emerald-600 ml-1.5">• {movTargetSummary}</span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              {/* Etki alanları mini */}
+                                              <div className="flex gap-0.5 shrink-0">
+                                                {(mov.effectAreas || []).slice(0, 2).map((areaKey: string) => {
+                                                  const area = EFFECT_AREAS.find(a => a.key === areaKey);
+                                                  return area ? <span key={areaKey} className="text-[9px]">{area.emoji}</span> : null;
+                                                })}
+                                              </div>
+                                            </div>
+
+                                            {/* Hareket Detayları */}
+                                            {isMovExpanded && (
+                                              <div className="px-2 pb-2 border-t border-emerald-100 bg-emerald-50/30 animate-in slide-in-from-top-1 duration-150">
+                                                {/* Etki Alanları */}
+                                                {(mov.effectAreas || []).length > 0 && (
+                                                  <div className="flex flex-wrap gap-1 mt-2">
+                                                    {(mov.effectAreas || []).map((areaKey: string) => {
+                                                      const area = EFFECT_AREAS.find(a => a.key === areaKey);
+                                                      if (!area) return null;
+                                                      return (
+                                                        <span key={areaKey} className="text-[9px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded border border-amber-200">
+                                                          {area.emoji} {area.label}
+                                                        </span>
+                                                      );
+                                                    })}
+                                                  </div>
+                                                )}
+
+                                                {/* Açıklama */}
+                                                {mov.description && (
+                                                  <p className="text-[10px] text-slate-600 mt-2 italic leading-relaxed">{mov.description}</p>
+                                                )}
+
+                                                {/* Ekipmanlar */}
+                                                {(mov.equipmentIds || []).length > 0 && (
+                                                  <div className="mt-2 pt-2 border-t border-emerald-100">
+                                                    <div className="flex items-center gap-1 text-[9px] text-slate-500 mb-1">
+                                                      <Package size={9} />
+                                                      <span className="font-medium">Ekipmanlar:</span>
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-1">
+                                                      {(mov.equipmentIds || []).map((eqId: string) => {
+                                                        const eq = data.equipment.find(e => e.id === eqId);
+                                                        if (!eq) return null;
+                                                        return (
+                                                          <span key={eqId} className="inline-flex items-center gap-1 text-[9px] bg-white text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
+                                                            {eq.name}
+                                                            {eq.image && <MediaButtons media={[eq.image]} compact />}
+                                                          </span>
+                                                        );
+                                                      })}
+                                                    </div>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
                                 )}
 
                                 {/* Tüm Setler */}

@@ -30,6 +30,10 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
   const [expandedRoutineId, setExpandedRoutineId] = useState<string | null>(null);
   const [expandedMovementId, setExpandedMovementId] = useState<string | null>(null);
 
+  // Nested expansion states (for routines view)
+  const [expandedRoutineExerciseId, setExpandedRoutineExerciseId] = useState<string | null>(null);
+  const [expandedExerciseMovementId, setExpandedExerciseMovementId] = useState<string | null>(null);
+
   // Editing State
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -605,63 +609,266 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                   <div className="space-y-2">
                     {item.exercises.map((ex, i) => {
                       const def = data.exercises.find(e => e.id === ex.exerciseId);
+                      const isMovement = ex.exerciseId.startsWith('mov_') || !!ex.movementId;
+                      const movId = ex.movementId || ex.exerciseId.replace('mov_', '');
+                      const movDef = isMovement ? (data.movements || []).find(m => m.id === movId) : null;
+
+                      // Egzersizin içindeki hareketler
+                      const exerciseMovements = def?.movementIds
+                        ? def.movementIds.map(mId => (data.movements || []).find(m => m.id === mId)).filter(Boolean)
+                        : def?.movementId
+                          ? [(data.movements || []).find(m => m.id === def.movementId)].filter(Boolean)
+                          : [];
+
+                      const exerciseUniqueId = `${item.id}_${i}`;
+                      const isExerciseExpanded = expandedRoutineExerciseId === exerciseUniqueId;
+
                       const formatTime = (seconds?: number) => {
                         if (!seconds) return '';
                         const mins = Math.floor(seconds / 60);
                         const secs = seconds % 60;
-                        if (mins === 0) return `${secs} sn`;
-                        if (secs === 0) return `${mins} dk`;
-                        return `${mins} dk ${secs} sn`;
+                        if (mins === 0) return `${secs}sn`;
+                        if (secs === 0) return `${mins}dk`;
+                        return `${mins}dk ${secs}sn`;
                       };
-                      const equipments = def?.equipmentIds
-                        ?.map(eqId => data.equipment.find(eq => eq.id === eqId))
-                        .filter(Boolean) || [];
+
+                      // Set/tekrar özet metni oluştur
+                      const targetSummary = [
+                        ex.targetSets && `${ex.targetSets} set`,
+                        ex.targetReps && `${ex.targetReps} tekrar`,
+                        ex.targetWeight && `${ex.targetWeight}kg`,
+                        ex.targetTimeSeconds && formatTime(ex.targetTimeSeconds)
+                      ].filter(Boolean).join(' • ');
+
+                      // Eğer doğrudan hareket ise - açılabilir
+                      if (isMovement && movDef) {
+                        const movUniqueId = `mov_${item.id}_${i}`;
+                        const isMovExpanded = expandedRoutineExerciseId === movUniqueId;
+
+                        return (
+                          <div key={i} className={`bg-emerald-50 rounded-lg border overflow-hidden transition-all ${isMovExpanded ? 'border-emerald-400 ring-1 ring-emerald-200' : 'border-emerald-200'}`}>
+                            {/* Hareket Header - Toggle */}
+                            <div
+                              onClick={() => setExpandedRoutineExerciseId(isMovExpanded ? null : movUniqueId)}
+                              className="p-3 cursor-pointer flex items-center justify-between hover:bg-emerald-100/50 transition-colors"
+                            >
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <div className={`p-1 rounded transition-transform duration-200 shrink-0 ${isMovExpanded ? 'rotate-90 bg-emerald-200' : 'bg-emerald-100'}`}>
+                                  <ChevronDown size={12} className={`text-emerald-600 transition-transform ${isMovExpanded ? 'rotate-[-90deg]' : ''}`} />
+                                </div>
+                                <Move size={14} className="text-emerald-600 shrink-0" />
+                                {movDef.media && <MediaButtons media={[movDef.media]} compact />}
+                                <div className="min-w-0">
+                                  <span className="font-medium text-emerald-800">{movDef.name}</span>
+                                  {targetSummary && (
+                                    <span className="text-[10px] text-emerald-600 ml-2">• {targetSummary}</span>
+                                  )}
+                                </div>
+                              </div>
+                              {/* Etki alanları mini */}
+                              <div className="flex gap-0.5 shrink-0">
+                                {(movDef.effectAreas || []).slice(0, 2).map((areaKey: string) => {
+                                  const area = EFFECT_AREAS.find(a => a.key === areaKey);
+                                  return area ? <span key={areaKey} className="text-[10px]">{area.emoji}</span> : null;
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Hareket Detayları */}
+                            {isMovExpanded && (
+                              <div className="px-3 pb-3 border-t border-emerald-200 bg-emerald-50/50 animate-in slide-in-from-top-1 duration-150">
+                                {/* Etki Alanları */}
+                                {(movDef.effectAreas || []).length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mt-2">
+                                    {(movDef.effectAreas || []).map((areaKey: string) => {
+                                      const area = EFFECT_AREAS.find(a => a.key === areaKey);
+                                      if (!area) return null;
+                                      return (
+                                        <span key={areaKey} className="text-[9px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded border border-amber-200">
+                                          {area.emoji} {area.label}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+
+                                {/* Açıklama */}
+                                {movDef.description && (
+                                  <p className="text-[10px] text-slate-600 mt-2 italic leading-relaxed">{movDef.description}</p>
+                                )}
+
+                                {/* Ekipmanlar */}
+                                {(movDef.equipmentIds || []).length > 0 && (
+                                  <div className="mt-2 pt-2 border-t border-emerald-200">
+                                    <div className="flex items-center gap-1 text-[9px] text-slate-500 mb-1">
+                                      <Package size={9} />
+                                      <span className="font-medium">Ekipmanlar:</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {(movDef.equipmentIds || []).map((eqId: string) => {
+                                        const eq = data.equipment.find(e => e.id === eqId);
+                                        if (!eq) return null;
+                                        return (
+                                          <span key={eqId} className="inline-flex items-center gap-1 text-[9px] bg-white text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
+                                            {eq.name}
+                                            {eq.image && <MediaButtons media={[eq.image]} compact />}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      // Egzersiz ise açılabilir
                       return (
-                        <div key={i} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
+                        <div key={i} className={`bg-white rounded-lg border overflow-hidden transition-all ${isExerciseExpanded ? 'border-brand-300 ring-1 ring-brand-100' : 'border-slate-200'}`}>
+                          {/* Egzersiz Header - Toggle */}
+                          <div
+                            onClick={() => setExpandedRoutineExerciseId(isExerciseExpanded ? null : exerciseUniqueId)}
+                            className="p-3 cursor-pointer flex items-center justify-between hover:bg-slate-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <div className={`p-1 rounded transition-transform duration-200 shrink-0 ${isExerciseExpanded ? 'rotate-90 bg-brand-100' : 'bg-slate-100'}`}>
+                                <ChevronDown size={12} className={`text-slate-500 transition-transform ${isExerciseExpanded ? 'rotate-[-90deg]' : ''}`} />
+                              </div>
                               {def?.media && <MediaButtons media={[def.media]} compact />}
-                              <span className="font-medium text-slate-800">{def?.name || 'Silinmiş Egzersiz'}</span>
+                              <div className="min-w-0">
+                                <span className="font-medium text-slate-800">{def?.name || 'Silinmiş Egzersiz'}</span>
+                                {exerciseMovements.length > 0 && (
+                                  <span className="text-[10px] text-slate-500 ml-1">({exerciseMovements.length} hareket)</span>
+                                )}
+                              </div>
                             </div>
                           </div>
-                          {/* Detaylı Hedefler */}
-                          <div className="flex flex-wrap gap-1.5 mt-2">
-                            {ex.targetSets && (
-                              <span className="text-[10px] px-2 py-0.5 bg-brand-50 text-brand-700 rounded-full font-medium">
-                                {ex.targetSets} set
-                              </span>
-                            )}
-                            {ex.targetReps && (
-                              <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full font-medium">
-                                {ex.targetReps} tekrar
-                              </span>
-                            )}
-                            {ex.targetWeight && (
-                              <span className="text-[10px] px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full font-medium">
-                                {ex.targetWeight} kg
-                              </span>
-                            )}
-                            {ex.targetTimeSeconds && (
-                              <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full font-medium">
-                                {formatTime(ex.targetTimeSeconds)}
-                              </span>
-                            )}
-                          </div>
-                          {/* Ekipmanlar */}
-                          {equipments.length > 0 && (
-                            <div className="mt-2 pt-2 border-t border-slate-100">
-                              <div className="flex items-center gap-1 text-[10px] text-slate-500 mb-1">
-                                <Package size={10} />
-                                <span className="font-medium">Ekipmanlar:</span>
-                              </div>
-                              <div className="flex flex-wrap gap-1">
-                                {equipments.map((eq: any) => (
-                                  <span key={eq.id} className="inline-flex items-center gap-1 text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                                    {eq.name}
-                                    {eq.image && <MediaButtons media={[eq.image]} compact />}
-                                  </span>
-                                ))}
-                              </div>
+
+                          {/* Egzersiz Detayları - Hareketler */}
+                          {isExerciseExpanded && (
+                            <div className="px-3 pb-3 border-t border-slate-100 bg-slate-50/50 animate-in slide-in-from-top-1 duration-150">
+                              {/* Hareketler Listesi */}
+                              {exerciseMovements.length > 0 && (
+                                <div className="space-y-1.5 mt-2">
+                                  <p className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wide flex items-center gap-1">
+                                    <Move size={10} /> Hareketler
+                                  </p>
+                                  {exerciseMovements.map((mov: any, mIdx) => {
+                                    const movUniqueId = `${exerciseUniqueId}_${mIdx}`;
+                                    const isMovExpanded = expandedExerciseMovementId === movUniqueId;
+
+                                    // Hareket varsayılan hedef özeti
+                                    const movTargetSummary = [
+                                      mov.defaultSets && `${mov.defaultSets} set`,
+                                      mov.defaultReps && `${mov.defaultReps} tekrar`,
+                                      mov.defaultWeight && `${mov.defaultWeight}kg`,
+                                      mov.defaultTimeSeconds && formatTime(mov.defaultTimeSeconds)
+                                    ].filter(Boolean).join(' • ');
+
+                                    return (
+                                      <div key={mIdx} className={`bg-white rounded border overflow-hidden transition-all ${isMovExpanded ? 'border-emerald-300' : 'border-emerald-100'}`}>
+                                        {/* Hareket Header */}
+                                        <div
+                                          onClick={() => setExpandedExerciseMovementId(isMovExpanded ? null : movUniqueId)}
+                                          className="p-2 cursor-pointer flex items-center justify-between hover:bg-emerald-50/50 transition-colors"
+                                        >
+                                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                            <div className={`p-0.5 rounded transition-transform duration-200 shrink-0 ${isMovExpanded ? 'rotate-90 bg-emerald-100' : 'bg-emerald-50'}`}>
+                                              <ChevronDown size={10} className={`text-emerald-500 transition-transform ${isMovExpanded ? 'rotate-[-90deg]' : ''}`} />
+                                            </div>
+                                            {mov.media && <MediaButtons media={[mov.media]} compact />}
+                                            <div className="min-w-0">
+                                              <span className="text-sm font-medium text-emerald-800">{mov.name}</span>
+                                              {movTargetSummary && (
+                                                <span className="text-[9px] text-emerald-600 ml-1.5">• {movTargetSummary}</span>
+                                              )}
+                                            </div>
+                                          </div>
+                                          {/* Etki alanları mini */}
+                                          <div className="flex gap-0.5 shrink-0">
+                                            {(mov.effectAreas || []).slice(0, 2).map((areaKey: string) => {
+                                              const area = EFFECT_AREAS.find(a => a.key === areaKey);
+                                              return area ? <span key={areaKey} className="text-[9px]">{area.emoji}</span> : null;
+                                            })}
+                                          </div>
+                                        </div>
+
+                                        {/* Hareket Detayları */}
+                                        {isMovExpanded && (
+                                          <div className="px-2 pb-2 border-t border-emerald-100 bg-emerald-50/30 animate-in slide-in-from-top-1 duration-150">
+
+                                            {/* Etki Alanları */}
+                                            {(mov.effectAreas || []).length > 0 && (
+                                              <div className="flex flex-wrap gap-1 mt-2">
+                                                {(mov.effectAreas || []).map((areaKey: string) => {
+                                                  const area = EFFECT_AREAS.find(a => a.key === areaKey);
+                                                  if (!area) return null;
+                                                  return (
+                                                    <span key={areaKey} className="text-[9px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded border border-amber-200">
+                                                      {area.emoji} {area.label}
+                                                    </span>
+                                                  );
+                                                })}
+                                              </div>
+                                            )}
+
+                                            {/* Açıklama */}
+                                            {mov.description && (
+                                              <p className="text-[10px] text-slate-600 mt-2 italic leading-relaxed">{mov.description}</p>
+                                            )}
+
+                                            {/* Ekipmanlar */}
+                                            {(mov.equipmentIds || []).length > 0 && (
+                                              <div className="mt-2 pt-2 border-t border-emerald-100">
+                                                <div className="flex items-center gap-1 text-[9px] text-slate-500 mb-1">
+                                                  <Package size={9} />
+                                                  <span className="font-medium">Ekipmanlar:</span>
+                                                </div>
+                                                <div className="flex flex-wrap gap-1">
+                                                  {(mov.equipmentIds || []).map((eqId: string) => {
+                                                    const eq = data.equipment.find(e => e.id === eqId);
+                                                    if (!eq) return null;
+                                                    return (
+                                                      <span key={eqId} className="inline-flex items-center gap-1 text-[9px] bg-white text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
+                                                        {eq.name}
+                                                        {eq.image && <MediaButtons media={[eq.image]} compact />}
+                                                      </span>
+                                                    );
+                                                  })}
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {/* Egzersiz ekipmanları (hareket yoksa) */}
+                              {exerciseMovements.length === 0 && def?.equipmentIds && def.equipmentIds.length > 0 && (
+                                <div className="mt-2 pt-2 border-t border-slate-100">
+                                  <div className="flex items-center gap-1 text-[10px] text-slate-500 mb-1">
+                                    <Package size={10} />
+                                    <span className="font-medium">Ekipmanlar:</span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {def.equipmentIds.map(eqId => {
+                                      const eq = data.equipment.find(e => e.id === eqId);
+                                      if (!eq) return null;
+                                      return (
+                                        <span key={eqId} className="inline-flex items-center gap-1 text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                                          {eq.name}
+                                          {eq.image && <MediaButtons media={[eq.image]} compact />}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

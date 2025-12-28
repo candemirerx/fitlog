@@ -1,14 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AppData, WorkoutLog, WorkoutExerciseLog, WorkoutSet, Routine, Movement } from '../types';
+import { AppData, WorkoutLog, WorkoutExerciseLog, WorkoutSet, Routine, Movement, MovementEffectArea } from '../types';
 import { Button } from '../components/Button';
 import {
   Check, Play, Save, Clock, AlertCircle, Camera, Video,
   Image as ImageIcon, X, Trash2, ChevronDown, Filter,
   MessageSquare, Timer, Dumbbell, RotateCcw, ChevronRight, Pencil, Loader2, Pause,
-  Plus, Search, Move
+  Plus, Search, Move, Package
 } from 'lucide-react';
 import { auth } from '../firebase';
 import { processAndUploadVideo, isVideoSource, isStorageUrl } from '../utils/videoUtils';
+
+// Etki Alanları tanımları
+const EFFECT_AREAS: { key: MovementEffectArea; label: string; emoji: string }[] = [
+  { key: 'stretching', label: 'Açma', emoji: '🔓' },
+  { key: 'balance', label: 'Denge', emoji: '⚖️' },
+  { key: 'breathing', label: 'Nefes', emoji: '🌬️' },
+  { key: 'strength', label: 'Kas Kuvvet', emoji: '💪' },
+  { key: 'cardio', label: 'Kardiyo', emoji: '❤️' },
+  { key: 'flexibility', label: 'Germe', emoji: '🧘' },
+];
 
 // Media Viewer Component
 export const MediaButtons: React.FC<{ media?: string[], compact?: boolean }> = ({ media, compact = false }) => {
@@ -96,7 +106,7 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
   const [isResting, setIsResting] = useState(false);
   const [restDuration, setRestDuration] = useState(60); // Default 60 seconds
 
-  // Expanded Exercise Note
+  // Expanded Note Index
   const [expandedNoteIdx, setExpandedNoteIdx] = useState<number | null>(null);
 
   // Expanded Edit Index (for inline editing)
@@ -104,6 +114,10 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
 
   // Active Exercise Timer Index
   const [activeTimerIdx, setActiveTimerIdx] = useState<number | null>(null);
+
+  // Expanded Exercise Details (for showing movements)
+  const [expandedExerciseIdx, setExpandedExerciseIdx] = useState<number | null>(null);
+  const [expandedMovements, setExpandedMovements] = useState<Set<string>>(new Set());
 
   // Quick Save Modal State
   const [quickSaveModalOpen, setQuickSaveModalOpen] = useState(false);
@@ -1050,6 +1064,16 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
               .join(', ')
             : '';
 
+          // Egzersizin içindeki hareketler (sadece egzersizler için, hareketler için değil)
+          const exerciseMovements = !isMovement && 'movementIds' in exerciseDef
+            ? (exerciseDef.movementIds || []).map(mId => (data.movements || []).find(m => m.id === mId)).filter(Boolean)
+            : !isMovement && 'movementId' in exerciseDef && exerciseDef.movementId
+              ? [(data.movements || []).find(m => m.id === exerciseDef.movementId)].filter(Boolean)
+              : [];
+
+          const hasMovements = exerciseMovements.length > 0;
+          const isExerciseDetailsExpanded = expandedExerciseIdx === idx;
+
           return (
             <div
               key={idx}
@@ -1120,10 +1144,25 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
 
                 {/* Exercise Info */}
                 <div className="flex-1 min-w-0">
-                  <h3 className={`font-bold flex items-center gap-1.5 ${exSession.completed ? 'text-green-700' : isMovement ? 'text-emerald-800' : 'text-slate-900'}`}>
-                    {isMovement && <Move size={14} className="text-emerald-600 shrink-0" />}
-                    {exerciseDef.name}
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className={`font-bold flex items-center gap-1.5 ${exSession.completed ? 'text-green-700' : isMovement ? 'text-emerald-800' : 'text-slate-900'}`}>
+                      {isMovement && <Move size={14} className="text-emerald-600 shrink-0" />}
+                      {exerciseDef.name}
+                    </h3>
+                    {hasMovements && (
+                      <button
+                        onClick={() => setExpandedExerciseIdx(isExerciseDetailsExpanded ? null : idx)}
+                        className={`text-[10px] px-1.5 py-0.5 rounded flex items-center gap-0.5 transition-colors ${isExerciseDetailsExpanded
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                          }`}
+                      >
+                        <Move size={10} />
+                        {exerciseMovements.length}
+                        <ChevronDown size={10} className={`transition-transform ${isExerciseDetailsExpanded ? 'rotate-180' : ''}`} />
+                      </button>
+                    )}
+                  </div>
 
                   {/* Exercise Details - Show values dynamically */}
                   <div className="mt-1 flex flex-wrap gap-2 text-xs">
@@ -1195,6 +1234,113 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
                   </button>
                 </div>
               </div>
+
+              {/* Expanded Movements Section */}
+              {isExerciseDetailsExpanded && hasMovements && (
+                <div className="px-4 pb-3 border-t border-emerald-100 bg-emerald-50/30 animate-in slide-in-from-top-1 duration-150">
+                  <p className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wide flex items-center gap-1 mt-2 mb-2">
+                    <Move size={10} /> Hareketler ({exerciseMovements.length})
+                  </p>
+                  <div className="space-y-1.5">
+                    {exerciseMovements.map((mov: any, mIdx) => {
+                      const movKey = `${idx}_mov_${mIdx}`;
+                      const isMovExpanded = expandedMovements.has(movKey);
+
+                      // Hareket hedef özeti
+                      const movTargetSummary = [
+                        mov.defaultSets && `${mov.defaultSets} set`,
+                        mov.defaultReps && `${mov.defaultReps} tekrar`,
+                        mov.defaultWeight && `${mov.defaultWeight}kg`,
+                        mov.defaultTimeSeconds && formatTimeDetailed(mov.defaultTimeSeconds)
+                      ].filter(Boolean).join(' • ');
+
+                      return (
+                        <div key={mIdx} className={`bg-white rounded-lg border overflow-hidden transition-all ${isMovExpanded ? 'border-emerald-300 ring-1 ring-emerald-100' : 'border-emerald-100'}`}>
+                          {/* Hareket Header */}
+                          <div
+                            onClick={() => {
+                              setExpandedMovements(prev => {
+                                const next = new Set(prev);
+                                if (next.has(movKey)) next.delete(movKey);
+                                else next.add(movKey);
+                                return next;
+                              });
+                            }}
+                            className="p-2.5 cursor-pointer flex items-center justify-between hover:bg-emerald-50/50 transition-colors"
+                          >
+                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                              <div className={`p-0.5 rounded transition-transform duration-200 shrink-0 ${isMovExpanded ? 'rotate-90 bg-emerald-200' : 'bg-emerald-100'}`}>
+                                <ChevronRight size={12} className="text-emerald-600" />
+                              </div>
+                              {mov.media && <MediaButtons media={[mov.media]} compact />}
+                              <div className="min-w-0">
+                                <span className="text-sm font-medium text-emerald-800">{mov.name}</span>
+                                {movTargetSummary && (
+                                  <span className="text-[9px] text-emerald-600 ml-1.5">• {movTargetSummary}</span>
+                                )}
+                              </div>
+                            </div>
+                            {/* Etki alanları mini */}
+                            <div className="flex gap-0.5 shrink-0">
+                              {(mov.effectAreas || []).slice(0, 2).map((areaKey: string) => {
+                                const area = EFFECT_AREAS.find(a => a.key === areaKey);
+                                return area ? <span key={areaKey} className="text-[10px]">{area.emoji}</span> : null;
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Hareket Detayları */}
+                          {isMovExpanded && (
+                            <div className="px-3 pb-3 border-t border-emerald-100 bg-emerald-50/30 animate-in slide-in-from-top-1 duration-150">
+                              {/* Etki Alanları */}
+                              {(mov.effectAreas || []).length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {(mov.effectAreas || []).map((areaKey: string) => {
+                                    const area = EFFECT_AREAS.find(a => a.key === areaKey);
+                                    if (!area) return null;
+                                    return (
+                                      <span key={areaKey} className="text-[9px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded border border-amber-200">
+                                        {area.emoji} {area.label}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {/* Açıklama */}
+                              {mov.description && (
+                                <p className="text-[10px] text-slate-600 mt-2 italic leading-relaxed">{mov.description}</p>
+                              )}
+
+                              {/* Ekipmanlar */}
+                              {(mov.equipmentIds || []).length > 0 && (
+                                <div className="mt-2 pt-2 border-t border-emerald-100">
+                                  <div className="flex items-center gap-1 text-[9px] text-slate-500 mb-1">
+                                    <Package size={9} />
+                                    <span className="font-medium">Ekipmanlar:</span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {(mov.equipmentIds || []).map((eqId: string) => {
+                                      const eq = data.equipment.find(e => e.id === eqId);
+                                      if (!eq) return null;
+                                      return (
+                                        <span key={eqId} className="inline-flex items-center gap-1 text-[9px] bg-white text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
+                                          {eq.name}
+                                          {eq.image && <MediaButtons media={[eq.image]} compact />}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Expandable Edit Section - For inline value editing */}
               {
