@@ -217,7 +217,7 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
         name: newItemName || selectedMovements.map(m => m.name).join(' + ') || 'Egzersiz',
         description: newItemDesc,
         equipmentIds: allEquipmentIds,
-        media: firstMovement?.media,
+        media: newItemMedia || undefined, // Egzersizin kendi fotoğrafı (ilk hareketin fotoğrafı değil)
         movementId: firstMovement?.id, // geriye dönük uyumluluk
         movementIds: selectedMovementIds,
         // İlk hareketten gelen varsayılan değerler
@@ -272,6 +272,7 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
     else if (activeTab === 'exercises') {
       const ex = item as Exercise;
       setNewItemDesc(ex.description || '');
+      setNewItemMedia(ex.media || ''); // Egzersizin mevcut fotoğrafını yükle
       // Çoklu hareket desteği - önce movementIds'e bak, yoksa movementId kullan
       const ids = ex.movementIds || (ex.movementId ? [ex.movementId] : []);
       setSelectedMovementIds(ids);
@@ -495,9 +496,12 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                       {item.name}
                       {item.media && <MediaButtons media={[item.media]} compact />}
                     </h3>
-                    {/* Kısa özet: hangi değerler varsa göster */}
+                    {/* Kısa özet: hareket sayısını göster */}
                     <span className="text-xs text-slate-500">
-                      {[item.defaultSets && `${item.defaultSets} set`, item.defaultReps && `${item.defaultReps} tekrar`, item.defaultWeight && `${item.defaultWeight}kg`, item.defaultTimeSeconds && `${Math.floor(item.defaultTimeSeconds / 60) > 0 ? `${Math.floor(item.defaultTimeSeconds / 60)}dk ` : ''}${item.defaultTimeSeconds % 60 > 0 ? `${item.defaultTimeSeconds % 60}sn` : ''}`].filter(Boolean).join(' • ') || 'Hedef belirlenmemiş'}
+                      {(() => {
+                        const movementCount = item.movementIds?.length || (item.movementId ? 1 : 0);
+                        return movementCount > 0 ? `${movementCount} hareket` : 'Hareket eklenmemiş';
+                      })()}
                     </span>
                   </div>
                 </div>
@@ -512,61 +516,160 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
               </div>
 
               {/* Genişletilmiş Detaylar */}
-              {isExpanded && (
-                <div className="px-4 pb-4 border-t border-slate-100 bg-slate-50/50 animate-in slide-in-from-top-1 duration-150">
-                  {/* Hedefler */}
-                  <div className="flex flex-wrap gap-2 mt-3 mb-3">
-                    {item.defaultSets && (
-                      <span className="bg-brand-50 px-2.5 py-1 rounded-full text-brand-700 border border-brand-100 font-medium text-xs">
-                        {item.defaultSets} set
-                      </span>
+              {isExpanded && (() => {
+                // Bu egzersizin hareketlerini al
+                const exerciseMovements = item.movementIds
+                  ? item.movementIds.map(mId => (data.movements || []).find(m => m.id === mId)).filter(Boolean) as Movement[]
+                  : item.movementId
+                    ? [(data.movements || []).find(m => m.id === item.movementId)].filter(Boolean) as Movement[]
+                    : [];
+
+                const formatTime = (seconds?: number) => {
+                  if (!seconds) return '';
+                  const mins = Math.floor(seconds / 60);
+                  const secs = seconds % 60;
+                  if (mins === 0) return `${secs}sn`;
+                  if (secs === 0) return `${mins}dk`;
+                  return `${mins}dk ${secs}sn`;
+                };
+
+                return (
+                  <div className="px-4 pb-4 border-t border-slate-100 bg-slate-50/50 animate-in slide-in-from-top-1 duration-150">
+                    {/* Açıklama */}
+                    {item.description && (
+                      <p className="text-sm text-slate-600 mt-3 mb-3 italic">{item.description}</p>
                     )}
-                    {item.defaultReps && (
-                      <span className="bg-blue-50 px-2.5 py-1 rounded-full text-blue-700 border border-blue-100 font-medium text-xs">
-                        {item.defaultReps} tekrar
-                      </span>
+
+                    {/* Hareketler Listesi */}
+                    {exerciseMovements.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide flex items-center gap-1 mb-2">
+                          <Move size={12} /> Hareketler ({exerciseMovements.length})
+                        </p>
+                        <div className="space-y-2">
+                          {exerciseMovements.map((mov, mIdx) => {
+                            const movUniqueId = `ex_${item.id}_mov_${mIdx}`;
+                            const isMovExpanded = expandedExerciseMovementId === movUniqueId;
+
+                            // Hareket hedef özeti
+                            const movTargetSummary = [
+                              mov.defaultSets && `${mov.defaultSets} set`,
+                              mov.defaultReps && `${mov.defaultReps} tekrar`,
+                              mov.defaultWeight && `${mov.defaultWeight}kg`,
+                              mov.defaultTimeSeconds && formatTime(mov.defaultTimeSeconds)
+                            ].filter(Boolean).join(' • ');
+
+                            return (
+                              <div key={mIdx} className={`bg-white rounded-lg border overflow-hidden transition-all ${isMovExpanded ? 'border-emerald-300 ring-1 ring-emerald-100' : 'border-emerald-100'}`}>
+                                {/* Hareket Header */}
+                                <div
+                                  onClick={() => setExpandedExerciseMovementId(isMovExpanded ? null : movUniqueId)}
+                                  className="p-3 cursor-pointer flex items-center justify-between hover:bg-emerald-50/50 transition-colors"
+                                >
+                                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                                    <div className={`p-1 rounded transition-transform duration-200 shrink-0 ${isMovExpanded ? 'rotate-90 bg-emerald-100' : 'bg-emerald-50'}`}>
+                                      <ChevronDown size={12} className={`text-emerald-500 transition-transform ${isMovExpanded ? 'rotate-[-90deg]' : ''}`} />
+                                    </div>
+                                    {mov.media && <MediaButtons media={[mov.media]} compact />}
+                                    <div className="min-w-0">
+                                      <span className="text-sm font-medium text-emerald-800">{mov.name}</span>
+                                      {movTargetSummary && (
+                                        <span className="text-[10px] text-emerald-600 ml-1.5">• {movTargetSummary}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {/* Etki alanları mini */}
+                                  <div className="flex gap-0.5 shrink-0">
+                                    {(mov.effectAreas || []).slice(0, 2).map((areaKey) => {
+                                      const area = EFFECT_AREAS.find(a => a.key === areaKey);
+                                      return area ? <span key={areaKey} className="text-[10px]">{area.emoji}</span> : null;
+                                    })}
+                                  </div>
+                                </div>
+
+                                {/* Hareket Detayları */}
+                                {isMovExpanded && (
+                                  <div className="px-3 pb-3 border-t border-emerald-100 bg-emerald-50/30 animate-in slide-in-from-top-1 duration-150">
+                                    {/* Hedefler */}
+                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                      {mov.defaultSets && (
+                                        <span className="bg-emerald-50 px-2 py-0.5 rounded-full text-emerald-700 border border-emerald-100 font-medium text-[10px]">
+                                          {mov.defaultSets} set
+                                        </span>
+                                      )}
+                                      {mov.defaultReps && (
+                                        <span className="bg-blue-50 px-2 py-0.5 rounded-full text-blue-700 border border-blue-100 font-medium text-[10px]">
+                                          {mov.defaultReps} tekrar
+                                        </span>
+                                      )}
+                                      {mov.defaultWeight && (
+                                        <span className="bg-purple-50 px-2 py-0.5 rounded-full text-purple-700 border border-purple-100 font-medium text-[10px]">
+                                          {mov.defaultWeight} kg
+                                        </span>
+                                      )}
+                                      {mov.defaultTimeSeconds && (
+                                        <span className="bg-amber-50 px-2 py-0.5 rounded-full text-amber-700 border border-amber-100 font-medium text-[10px]">
+                                          {formatTime(mov.defaultTimeSeconds)}
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Etki Alanları */}
+                                    {(mov.effectAreas || []).length > 0 && (
+                                      <div className="flex flex-wrap gap-1 mt-2">
+                                        {(mov.effectAreas || []).map((areaKey) => {
+                                          const area = EFFECT_AREAS.find(a => a.key === areaKey);
+                                          if (!area) return null;
+                                          return (
+                                            <span key={areaKey} className="text-[9px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded border border-amber-200">
+                                              {area.emoji} {area.label}
+                                            </span>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+
+                                    {/* Açıklama */}
+                                    {mov.description && (
+                                      <p className="text-[10px] text-slate-600 mt-2 italic leading-relaxed">{mov.description}</p>
+                                    )}
+
+                                    {/* Ekipmanlar */}
+                                    {(mov.equipmentIds || []).length > 0 && (
+                                      <div className="mt-2 pt-2 border-t border-emerald-200">
+                                        <div className="flex items-center gap-1 text-[9px] text-slate-500 mb-1">
+                                          <Package size={9} />
+                                          <span className="font-medium">Ekipmanlar:</span>
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                          {(mov.equipmentIds || []).map((eqId) => {
+                                            const eq = data.equipment.find(e => e.id === eqId);
+                                            if (!eq) return null;
+                                            return (
+                                              <span key={eqId} className="inline-flex items-center gap-1 text-[9px] bg-white text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
+                                                {eq.name}
+                                                {eq.image && <MediaButtons media={[eq.image]} compact />}
+                                              </span>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     )}
-                    {item.defaultWeight && (
-                      <span className="bg-purple-50 px-2.5 py-1 rounded-full text-purple-700 border border-purple-100 font-medium text-xs">
-                        {item.defaultWeight} kg
-                      </span>
-                    )}
-                    {item.defaultTimeSeconds && (
-                      <span className="bg-amber-50 px-2.5 py-1 rounded-full text-amber-700 border border-amber-100 font-medium text-xs">
-                        {Math.floor(item.defaultTimeSeconds / 60) > 0 ? `${Math.floor(item.defaultTimeSeconds / 60)} dk ` : ''}{item.defaultTimeSeconds % 60 > 0 ? `${item.defaultTimeSeconds % 60} sn` : ''}
-                      </span>
+
+                    {exerciseMovements.length === 0 && (
+                      <p className="text-xs text-slate-400 mt-3 italic">Bu egzersizde hareket tanımlı değil.</p>
                     )}
                   </div>
-
-                  {/* Açıklama */}
-                  {item.description && (
-                    <p className="text-sm text-slate-600 mb-3 italic">{item.description}</p>
-                  )}
-
-                  {/* Ekipmanlar */}
-                  {item.equipmentIds.length > 0 && (
-                    <div className="pt-2 border-t border-slate-200">
-                      <p className="text-xs font-medium text-slate-500 mb-2">Ekipmanlar:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {item.equipmentIds.map(eqId => {
-                          const eq = data.equipment.find(e => e.id === eqId);
-                          if (!eq) return null;
-                          return (
-                            <span key={eqId} className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-700 font-medium shadow-sm">
-                              <span>{eq.name}</span>
-                              {eq.image && (
-                                <div className="shrink-0 border-l border-slate-200 pl-1.5">
-                                  <MediaButtons media={[eq.image]} compact={true} />
-                                </div>
-                              )}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+                );
+              })()}
             </div>
           );
         })}
@@ -1177,6 +1280,46 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                         ⚠️ Henüz hareket eklenmemiş. Önce "Hareketlerim" sekmesinden hareket ekleyin.
                       </p>
                     )}
+                  </div>
+
+                  {/* Egzersiz Fotoğrafı/Videosu */}
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                      <ImageIcon size={16} className="text-slate-500" />
+                      Egzersiz Görseli (Opsiyonel)
+                    </label>
+                    {newItemMedia ? (
+                      <div className="relative h-40 bg-black/5 rounded-lg overflow-hidden border border-slate-200 group flex items-center justify-center">
+                        {isVideo(newItemMedia) ? <video src={newItemMedia} controls className="w-full h-full object-contain" /> : <img src={newItemMedia} className="w-full h-full object-contain" />}
+                        <button onClick={() => setNewItemMedia('')} className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full shadow-sm hover:bg-red-600 transition-colors z-10"><X size={16} /></button>
+                      </div>
+                    ) : videoUploadProgress !== null ? (
+                      <div className="h-40 bg-brand-50 rounded-lg border border-brand-200 flex flex-col items-center justify-center">
+                        <div className="flex items-center gap-2 text-brand-600 mb-3">
+                          <Loader2 size={24} className="animate-spin" />
+                          <span className="text-sm font-medium">
+                            {videoUploadProgress < 50 ? 'Video sıkıştırılıyor...' : 'Yükleniyor...'}
+                          </span>
+                        </div>
+                        <div className="w-48 h-2 bg-brand-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-brand-500 transition-all duration-300"
+                            style={{ width: `${videoUploadProgress}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-brand-500 mt-2">{Math.round(videoUploadProgress)}%</span>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2">
+                        <input type="file" ref={fileInputRef} onChange={handleMediaUpload} accept="image/*,video/*" className="hidden" />
+                        <input type="file" ref={cameraInputRef} onChange={handleMediaUpload} accept="image/*" capture="environment" className="hidden" />
+                        <input type="file" ref={videoInputRef} onChange={handleMediaUpload} accept="video/*" capture="environment" className="hidden" />
+                        <div onClick={() => fileInputRef.current?.click()} className="h-20 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-slate-100 transition-all text-center px-1"><ImageIcon className="w-5 h-5 text-slate-400 mb-1" /><span className="text-[10px] font-medium text-slate-500">Galeri</span></div>
+                        <div onClick={() => cameraInputRef.current?.click()} className="h-20 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-slate-100 transition-all text-center px-1"><Camera className="w-5 h-5 text-slate-400 mb-1" /><span className="text-[10px] font-medium text-slate-500">Fotoğraf</span></div>
+                        <div onClick={() => videoInputRef.current?.click()} className="h-20 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-slate-100 transition-all text-center px-1"><Video className="w-5 h-5 text-slate-400 mb-1" /><span className="text-[10px] font-medium text-slate-500">Video</span></div>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-slate-400 mt-2">Bu görsel egzersiz kartında gösterilir. Hareketlerin görselleri ayrıdır.</p>
                   </div>
                 </div>
               )}

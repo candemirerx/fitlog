@@ -423,10 +423,10 @@ export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
                                   )}
                                 </div>
 
-                                {/* Quick Summary */}
-                                {!isExerciseExpanded && targetSummary && (
+                                {/* Quick Summary - hareket sayısı göster */}
+                                {!isExerciseExpanded && exerciseMovements.length > 0 && (
                                   <div className="text-[11px] text-slate-500 mt-0.5">
-                                    {targetSummary}
+                                    {exerciseMovements.length} hareket
                                   </div>
                                 )}
                               </div>
@@ -437,23 +437,7 @@ export const LogbookView: React.FC<LogbookProps> = ({ data, onDeleteLog }) => {
                             {/* Expanded Details */}
                             {isExerciseExpanded && (
                               <div className="px-4 pb-3 pt-2 border-t border-slate-100 bg-slate-50/50 animate-in slide-in-from-top-1 duration-150">
-                                {/* Kompakt hedef bilgileri */}
-                                {targetSummary && (
-                                  <div className="flex flex-wrap gap-1.5 mb-2">
-                                    {ex.sets.length > 0 && <span className="text-[10px] px-2 py-0.5 bg-brand-50 text-brand-700 rounded-full">{ex.sets.length} set</span>}
-                                    {set?.reps && <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full">{set.reps} tekrar</span>}
-                                    {set?.weight && <span className="text-[10px] px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full">{set.weight}kg</span>}
-                                    {set?.timeSeconds && (
-                                      <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full">
-                                        {ex.actualDurationSeconds ? (
-                                          <>{formatTimeDetailed(ex.actualDurationSeconds)} <span className="opacity-60">/ {formatTimeDetailed(set.timeSeconds)}</span></>
-                                        ) : (
-                                          formatTimeDetailed(set.timeSeconds)
-                                        )}
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
+                                {/* Hareketler Listesi - set/tekrar silindi, sadece hareketler gösterilecek */}
 
                                 {/* Ekipman */}
                                 {equipmentNames && (
