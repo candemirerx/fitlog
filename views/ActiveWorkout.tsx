@@ -84,9 +84,20 @@ interface ExerciseSession {
   overrideReps?: number;
   overrideWeight?: number;
   overrideTimeSeconds?: number;
-  // Exercise Timer (for timed exercises)
+  // Exercise Timer (for timed exercises) - legacy single timer
   timerRemaining?: number; // Kalan süre (saniye)
   timerRunning?: boolean;  // Timer çalışıyor mu
+  // Movement-based timers (for exercises with multiple timed movements)
+  movementTimers?: {
+    [movementId: string]: {
+      remaining: number;
+      targetTime: number;
+      running: boolean;
+      completed: boolean;
+    }
+  };
+  // Karma antrenman için: kullanıcı manuel başlatacak
+  timerPendingStart?: boolean;
 }
 
 export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLog }) => {
@@ -299,6 +310,113 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
     return () => clearInterval(interval);
   }, [activeTimerIdx, sessionExercises, data.exercises, restDuration]);
 
+  // Movement Timer - Hareket bazlı geri sayım
+  useEffect(() => {
+    let interval: any;
+
+    // Aktif hareket timer'ı bul
+    const exWithRunningMovement = sessionExercises.findIndex(ex =>
+      ex.movementTimers && Object.values(ex.movementTimers).some((mt: any) => mt.running)
+    );
+
+    if (exWithRunningMovement !== -1) {
+      const exSession = sessionExercises[exWithRunningMovement];
+      if (exSession?.movementTimers) {
+        const runningMovId = Object.keys(exSession.movementTimers).find(
+          mId => exSession.movementTimers![mId].running
+        );
+
+        if (runningMovId) {
+          interval = setInterval(() => {
+            setSessionExercises(prev => {
+              const updated = [...prev];
+              const currentEx = { ...updated[exWithRunningMovement] };
+              if (!currentEx.movementTimers) return prev;
+
+              const movTimer = currentEx.movementTimers[runningMovId];
+              if (!movTimer || !movTimer.running) return prev;
+
+              const newRemaining = movTimer.remaining - 1;
+
+              // Son 10 saniye uyarısı
+              if (newRemaining === 10) {
+                const mov = (data.movements || []).find(m => m.id === runningMovId);
+                speakAlert(`Son 10 saniye! ${mov?.name || ''}`);
+              }
+
+              if (newRemaining <= 0) {
+                // Hareket tamamlandı
+                currentEx.movementTimers = {
+                  ...currentEx.movementTimers,
+                  [runningMovId]: {
+                    ...movTimer,
+                    remaining: 0,
+                    running: false,
+                    completed: true
+                  }
+                };
+
+                // Sıradaki hareketi bul
+                const movementIds = Object.keys(currentEx.movementTimers);
+                const currentIdx = movementIds.indexOf(runningMovId);
+                const nextMovId = movementIds[currentIdx + 1];
+
+                if (nextMovId && !currentEx.movementTimers[nextMovId].completed) {
+                  // Sonraki hareketi başlat
+                  currentEx.movementTimers = {
+                    ...currentEx.movementTimers,
+                    [nextMovId]: {
+                      ...currentEx.movementTimers[nextMovId],
+                      running: true
+                    }
+                  };
+                  const nextMov = (data.movements || []).find(m => m.id === nextMovId);
+                  const nextDuration = currentEx.movementTimers[nextMovId].targetTime;
+                  const durationText = nextDuration >= 60
+                    ? `${Math.floor(nextDuration / 60)} dakika${nextDuration % 60 > 0 ? ` ${nextDuration % 60} saniye` : ''}`
+                    : `${nextDuration} saniye`;
+                  speakAlert(`${nextMov?.name || 'Hareket'} başlıyor. ${durationText}`);
+                } else {
+                  // Tüm hareketler tamamlandı - egzersizi tamamla
+                  const allCompleted = Object.values(currentEx.movementTimers).every((mt: any) => mt.completed);
+                  if (allCompleted) {
+                    currentEx.completed = true;
+                    if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
+
+                    // Sıradaki egzersiz varsa dinlenme başlat
+                    const nextExIdx = exWithRunningMovement + 1;
+                    if (nextExIdx < prev.length && !prev[nextExIdx].completed) {
+                      setTimeout(() => {
+                        setRestTimer(restDuration);
+                        setIsResting(true);
+                        speakAlert('Dinlenme süresi başladı');
+                      }, 500);
+                    } else {
+                      speakAlert('Egzersiz tamamlandı!');
+                    }
+                  }
+                }
+              } else {
+                currentEx.movementTimers = {
+                  ...currentEx.movementTimers,
+                  [runningMovId]: {
+                    ...movTimer,
+                    remaining: newRemaining
+                  }
+                };
+              }
+
+              updated[exWithRunningMovement] = currentEx;
+              return updated;
+            });
+          }, 1000);
+        }
+      }
+    }
+
+    return () => clearInterval(interval);
+  }, [sessionExercises, data.movements, restDuration]);
+
   // Auto-save session
   useEffect(() => {
     if (step === 'active' && startTime) {
@@ -418,28 +536,77 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
 
   const startWorkout = (routine?: Routine) => {
     let exercises: ExerciseSession[] = [];
-    let firstTimedExerciseIdx: number | null = null;
+    let hasTimedExercises = false;
+    let hasNonTimedExercises = false;
 
     if (routine && routine.exercises) {
-      exercises = routine.exercises.map((ex, idx) => {
+      // Önce karma antrenman olup olmadığını kontrol et
+      routine.exercises.forEach(ex => {
         const exerciseDef = data.exercises.find(e => e.id === ex.exerciseId);
-        // Rutin'deki hedef süre veya egzersizin varsayılan süresi
         const targetTime = ex.targetTimeSeconds || exerciseDef?.defaultTimeSeconds;
 
-        // Süresli egzersizler için completed=false, timer ayarla
-        if (targetTime && targetTime > 0) {
-          // İlk süresli egzersizi bul
-          if (firstTimedExerciseIdx === null) {
-            firstTimedExerciseIdx = idx;
+        // Egzersiz içindeki hareketlerin sürelerini kontrol et
+        const movementIds = exerciseDef?.movementIds || (exerciseDef?.movementId ? [exerciseDef.movementId] : []);
+        let hasTimedMovements = false;
+
+        movementIds.forEach(mId => {
+          const mov = (data.movements || []).find(m => m.id === mId);
+          const movOverride = exerciseDef?.movementOverrides?.[mId];
+          const movTime = movOverride?.time === null ? undefined : (movOverride?.time ?? mov?.defaultTimeSeconds);
+          if (movTime && movTime > 0) hasTimedMovements = true;
+        });
+
+        if ((targetTime && targetTime > 0) || hasTimedMovements) {
+          hasTimedExercises = true;
+        } else {
+          hasNonTimedExercises = true;
+        }
+      });
+
+      const isMixedWorkout = hasTimedExercises && hasNonTimedExercises;
+
+      exercises = routine.exercises.map((ex, idx) => {
+        const exerciseDef = data.exercises.find(e => e.id === ex.exerciseId);
+
+        // Egzersizin hareketlerini al
+        const movementIds = exerciseDef?.movementIds || (exerciseDef?.movementId ? [exerciseDef.movementId] : []);
+
+        // Her hareket için timer oluştur
+        const movementTimers: ExerciseSession['movementTimers'] = {};
+        let hasAnyTimedMovement = false;
+
+        movementIds.forEach(mId => {
+          const mov = (data.movements || []).find(m => m.id === mId);
+          const movOverride = exerciseDef?.movementOverrides?.[mId];
+          const movTime = movOverride?.time === null ? undefined : (movOverride?.time ?? mov?.defaultTimeSeconds);
+
+          if (movTime && movTime > 0) {
+            hasAnyTimedMovement = true;
+            movementTimers[mId] = {
+              remaining: movTime,
+              targetTime: movTime,
+              running: false,
+              completed: false
+            };
           }
+        });
+
+        // Egzersiz bazlı süre (geriye dönük uyumluluk)
+        const exerciseTargetTime = ex.targetTimeSeconds || exerciseDef?.defaultTimeSeconds;
+
+        if (hasAnyTimedMovement || (exerciseTargetTime && exerciseTargetTime > 0)) {
+          // Süreli egzersiz
           return {
             exerciseId: ex.exerciseId,
             completed: false,
             note: '',
-            timerRemaining: targetTime,
-            timerRunning: firstTimedExerciseIdx === idx // İlk süresli egzersiz direkt başlasın
+            timerRemaining: Object.keys(movementTimers).length === 0 ? exerciseTargetTime : undefined,
+            timerRunning: false,
+            movementTimers: Object.keys(movementTimers).length > 0 ? movementTimers : undefined,
+            timerPendingStart: isMixedWorkout // Karma antrenman ise kullanıcı tetikleyecek
           };
         }
+
         // Süresiz egzersizler varsayılan olarak tamamlandı
         return {
           exerciseId: ex.exerciseId,
@@ -447,6 +614,26 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
           note: ''
         };
       });
+
+      // Karma değilse ve süreli egzersiz varsa ilk süreli egzersizi başlat
+      if (!isMixedWorkout && hasTimedExercises) {
+        const firstTimedIdx = exercises.findIndex(ex =>
+          ex.timerRemaining !== undefined || ex.movementTimers
+        );
+        if (firstTimedIdx !== -1) {
+          const ex = exercises[firstTimedIdx];
+          if (ex.movementTimers) {
+            // İlk hareketin timer'ını başlat
+            const firstMovId = Object.keys(ex.movementTimers)[0];
+            if (firstMovId) {
+              ex.movementTimers[firstMovId].running = true;
+            }
+          } else if (ex.timerRemaining) {
+            ex.timerRunning = true;
+          }
+          ex.timerPendingStart = false;
+        }
+      }
     }
 
     setSessionExercises(exercises);
@@ -454,8 +641,172 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
     setSessionMedia([]);
     setSessionNote('');
     setStartTime(new Date());
-    setActiveTimerIdx(firstTimedExerciseIdx); // İlk süresli egzersizin timer'ını başlat
+
+    // Aktif timer indexini bul (karma olmayan ve süreli egzersiz varsa)
+    const firstActiveIdx = exercises.findIndex(ex =>
+      ex.timerRunning || (ex.movementTimers && Object.values(ex.movementTimers).some(mt => mt.running))
+    );
+    setActiveTimerIdx(firstActiveIdx !== -1 ? firstActiveIdx : null);
     setStep('active');
+  };
+
+  // Karma antrenman: Egzersizin hareket timer'larını başlat
+  const startExerciseMovementTimers = (idx: number) => {
+    const exSession = sessionExercises[idx];
+    const exerciseDef = data.exercises.find(e => e.id === exSession.exerciseId);
+
+    // Sesli duyuru yap
+    if (exSession.movementTimers) {
+      const firstMovId = Object.keys(exSession.movementTimers)[0];
+      if (firstMovId) {
+        const mov = (data.movements || []).find(m => m.id === firstMovId);
+        const duration = exSession.movementTimers[firstMovId].targetTime;
+        const durationText = duration >= 60
+          ? `${Math.floor(duration / 60)} dakika${duration % 60 > 0 ? ` ${duration % 60} saniye` : ''}`
+          : `${duration} saniye`;
+        speakAlert(`${mov?.name || 'Hareket'} başlıyor. ${durationText}`);
+      }
+    } else if (exSession.timerRemaining) {
+      const duration = exSession.timerRemaining;
+      const durationText = duration >= 60
+        ? `${Math.floor(duration / 60)} dakika${duration % 60 > 0 ? ` ${duration % 60} saniye` : ''}`
+        : `${duration} saniye`;
+      speakAlert(`${exerciseDef?.name || 'Egzersiz'} başlıyor. ${durationText}`);
+    }
+
+    setSessionExercises(prev => {
+      const updated = [...prev];
+      const ex = { ...updated[idx] };
+
+      if (ex.movementTimers) {
+        // İlk hareketi başlat
+        const firstMovId = Object.keys(ex.movementTimers)[0];
+        if (firstMovId) {
+          ex.movementTimers = {
+            ...ex.movementTimers,
+            [firstMovId]: {
+              ...ex.movementTimers[firstMovId],
+              running: true
+            }
+          };
+        }
+        ex.timerPendingStart = false;
+      } else if (ex.timerRemaining) {
+        // Eski stil tek timer
+        ex.timerRunning = true;
+        ex.timerPendingStart = false;
+        setActiveTimerIdx(idx);
+      }
+
+      updated[idx] = ex;
+      return updated;
+    });
+  };
+
+  // Hareket timer'ını başlat/durdur
+  const toggleMovementTimer = (exIdx: number, movId: string) => {
+    const exSession = sessionExercises[exIdx];
+    const isCurrentlyRunning = exSession.movementTimers?.[movId]?.running;
+
+    // Eğer başlatılıyorsa (şu an çalışmıyorsa) sesli duyuru yap
+    if (!isCurrentlyRunning && exSession.movementTimers?.[movId]) {
+      const mov = (data.movements || []).find(m => m.id === movId);
+      const duration = exSession.movementTimers[movId].remaining;
+      const durationText = duration >= 60
+        ? `${Math.floor(duration / 60)} dakika${duration % 60 > 0 ? ` ${duration % 60} saniye` : ''}`
+        : `${duration} saniye`;
+      speakAlert(`${mov?.name || 'Hareket'} başlıyor. ${durationText}`);
+    }
+
+    setSessionExercises(prev => {
+      const updated = [...prev];
+      const ex = { ...updated[exIdx] };
+
+      if (ex.movementTimers && ex.movementTimers[movId]) {
+        const isRunning = ex.movementTimers[movId].running;
+
+        // Önce tüm hareket timer'larını durdur
+        const newTimers: typeof ex.movementTimers = {};
+        Object.keys(ex.movementTimers).forEach(mId => {
+          newTimers[mId] = {
+            ...ex.movementTimers![mId],
+            running: mId === movId ? !isRunning : false
+          };
+        });
+
+        ex.movementTimers = newTimers;
+        ex.timerPendingStart = false;
+      }
+
+      updated[exIdx] = ex;
+      return updated;
+    });
+  };
+
+  // Hareket timer'ını sıfırla
+  const resetMovementTimer = (exIdx: number, movId: string) => {
+    const exSession = sessionExercises[exIdx];
+
+    // Sesli duyuru yap
+    if (exSession.movementTimers?.[movId]) {
+      const mov = (data.movements || []).find(m => m.id === movId);
+      const duration = exSession.movementTimers[movId].targetTime;
+      const durationText = duration >= 60
+        ? `${Math.floor(duration / 60)} dakika${duration % 60 > 0 ? ` ${duration % 60} saniye` : ''}`
+        : `${duration} saniye`;
+      speakAlert(`${mov?.name || 'Hareket'} yeniden başlıyor. ${durationText}`);
+    }
+
+    setSessionExercises(prev => {
+      const updated = [...prev];
+      const ex = { ...updated[exIdx] };
+
+      if (ex.movementTimers && ex.movementTimers[movId]) {
+        ex.movementTimers = {
+          ...ex.movementTimers,
+          [movId]: {
+            ...ex.movementTimers[movId],
+            remaining: ex.movementTimers[movId].targetTime,
+            running: true,
+            completed: false
+          }
+        };
+        ex.completed = false;
+        ex.timerPendingStart = false;
+      }
+
+      updated[exIdx] = ex;
+      return updated;
+    });
+  };
+
+  // Hareketi manuel tamamla
+  const completeMovement = (exIdx: number, movId: string) => {
+    setSessionExercises(prev => {
+      const updated = [...prev];
+      const ex = { ...updated[exIdx] };
+
+      if (ex.movementTimers && ex.movementTimers[movId]) {
+        ex.movementTimers = {
+          ...ex.movementTimers,
+          [movId]: {
+            ...ex.movementTimers[movId],
+            remaining: 0,
+            running: false,
+            completed: true
+          }
+        };
+
+        // Tüm hareketler tamamlandı mı kontrol et
+        const allCompleted = Object.values(ex.movementTimers).every((mt: any) => mt.completed);
+        if (allCompleted) {
+          ex.completed = true;
+        }
+      }
+
+      updated[exIdx] = ex;
+      return updated;
+    });
   };
 
   const toggleExerciseComplete = (idx: number) => {
@@ -1085,49 +1436,118 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
               {/* Exercise Header */}
               <div className="p-4 flex items-start gap-3">
                 {/* Completion Toggle veya Timer */}
-                {exSession.timerRemaining !== undefined ? (
-                  // Süresli egzersiz - Timer göster
+                {exSession.movementTimers ? (
+                  // Hareket bazlı timer'lı egzersiz
+                  (() => {
+                    const movTimers = exSession.movementTimers!;
+                    const movIds = Object.keys(movTimers);
+                    const completedCount = movIds.filter(mId => movTimers[mId].completed).length;
+                    const totalCount = movIds.length;
+                    const isAnyRunning = movIds.some(mId => movTimers[mId].running);
+                    const currentRunningId = movIds.find(mId => movTimers[mId].running);
+                    const currentRunningTimer = currentRunningId ? movTimers[currentRunningId] : null;
+                    const allCompleted = completedCount === totalCount;
+
+                    return (
+                      <div className="flex flex-col items-center gap-1">
+                        {exSession.timerPendingStart ? (
+                          // Karma antrenman - Başlat butonu
+                          <button
+                            onClick={() => startExerciseMovementTimers(idx)}
+                            className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all"
+                            title="Egzersizi Başlat"
+                          >
+                            <Play size={20} fill="currentColor" />
+                          </button>
+                        ) : allCompleted ? (
+                          // Tamamlandı
+                          <button
+                            onClick={() => {
+                              // Tüm hareket timer'larını sıfırla
+                              movIds.forEach(mId => resetMovementTimer(idx, mId));
+                            }}
+                            className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 bg-green-500 text-white shadow-md hover:bg-green-600 transition-all"
+                            title="Yeniden Başlat"
+                          >
+                            <Check size={20} strokeWidth={3} />
+                          </button>
+                        ) : (
+                          // Timer devam ediyor
+                          <div
+                            className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 font-mono text-xs font-bold transition-all ${isAnyRunning
+                              ? 'bg-amber-500 text-white shadow-md animate-pulse'
+                              : 'bg-amber-100 text-amber-700'
+                              }`}
+                          >
+                            {currentRunningTimer ? (
+                              <span className="text-[10px] leading-tight text-center">
+                                {Math.floor(currentRunningTimer.remaining / 60)}:{(currentRunningTimer.remaining % 60).toString().padStart(2, '0')}
+                              </span>
+                            ) : (
+                              <span className="text-[10px]">{completedCount}/{totalCount}</span>
+                            )}
+                          </div>
+                        )}
+                        <span className="text-[9px] text-slate-500">{completedCount}/{totalCount} hareket</span>
+                      </div>
+                    );
+                  })()
+                ) : exSession.timerRemaining !== undefined ? (
+                  // Süresli egzersiz (eski stil) - Timer göster
                   <div className="flex flex-col items-center gap-1">
-                    <button
-                      onClick={() => exSession.completed ? resetExerciseTimer(idx) : manualCompleteExercise(idx)}
-                      className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all font-mono text-xs font-bold cursor-pointer ${exSession.completed
-                        ? 'bg-green-500 text-white shadow-md hover:bg-green-600'
-                        : exSession.timerRunning
-                          ? 'bg-amber-500 text-white shadow-md animate-pulse hover:bg-amber-600'
-                          : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                        }`}
-                      title={exSession.completed ? 'Yeniden Başlat' : 'Tamamla'}
-                    >
-                      {exSession.completed || exSession.timerRemaining <= 0 ? (
-                        <Check size={20} strokeWidth={3} />
-                      ) : (
-                        <span className="text-[10px] leading-tight text-center">
-                          {Math.floor(exSession.timerRemaining / 60)}:{(exSession.timerRemaining % 60).toString().padStart(2, '0')}
-                        </span>
-                      )}
-                    </button>
-                    <div className="flex items-center gap-2">
-                      {/* Duraklat/Devam - sadece timer aktifken */}
-                      {exSession.timerRemaining > 0 && (
-                        <button
-                          onClick={() => toggleExerciseTimer(idx)}
-                          className={`p-1 rounded transition-colors ${exSession.timerRunning
-                            ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
-                            : 'text-green-600 bg-green-50 hover:bg-green-100'}`}
-                          title={exSession.timerRunning ? 'Duraklat' : 'Devam Et'}
-                        >
-                          {exSession.timerRunning ? <Pause size={14} /> : <Play size={14} />}
-                        </button>
-                      )}
-                      {/* Yeniden Başlat - her zaman görünür */}
+                    {exSession.timerPendingStart ? (
+                      // Karma antrenman - Başlat butonu
                       <button
-                        onClick={() => resetExerciseTimer(idx)}
-                        className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
-                        title="Yeniden Başlat"
+                        onClick={() => startExerciseMovementTimers(idx)}
+                        className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all"
+                        title="Egzersizi Başlat"
                       >
-                        <RotateCcw size={14} />
+                        <Play size={20} fill="currentColor" />
                       </button>
-                    </div>
+                    ) : (
+                      <button
+                        onClick={() => exSession.completed ? resetExerciseTimer(idx) : manualCompleteExercise(idx)}
+                        className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all font-mono text-xs font-bold cursor-pointer ${exSession.completed
+                          ? 'bg-green-500 text-white shadow-md hover:bg-green-600'
+                          : exSession.timerRunning
+                            ? 'bg-amber-500 text-white shadow-md animate-pulse hover:bg-amber-600'
+                            : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                          }`}
+                        title={exSession.completed ? 'Yeniden Başlat' : 'Tamamla'}
+                      >
+                        {exSession.completed || exSession.timerRemaining <= 0 ? (
+                          <Check size={20} strokeWidth={3} />
+                        ) : (
+                          <span className="text-[10px] leading-tight text-center">
+                            {Math.floor(exSession.timerRemaining / 60)}:{(exSession.timerRemaining % 60).toString().padStart(2, '0')}
+                          </span>
+                        )}
+                      </button>
+                    )}
+                    {!exSession.timerPendingStart && (
+                      <div className="flex items-center gap-2">
+                        {/* Duraklat/Devam - sadece timer aktifken */}
+                        {exSession.timerRemaining > 0 && (
+                          <button
+                            onClick={() => toggleExerciseTimer(idx)}
+                            className={`p-1 rounded transition-colors ${exSession.timerRunning
+                              ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
+                              : 'text-green-600 bg-green-50 hover:bg-green-100'}`}
+                            title={exSession.timerRunning ? 'Duraklat' : 'Devam Et'}
+                          >
+                            {exSession.timerRunning ? <Pause size={14} /> : <Play size={14} />}
+                          </button>
+                        )}
+                        {/* Yeniden Başlat - her zaman görünür */}
+                        <button
+                          onClick={() => resetExerciseTimer(idx)}
+                          className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                          title="Yeniden Başlat"
+                        >
+                          <RotateCcw size={14} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   // Normal egzersiz - Tik göster
@@ -1246,6 +1666,10 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
                       const movKey = `${idx}_mov_${mIdx}`;
                       const isMovExpanded = expandedMovements.has(movKey);
 
+                      // Movement timer kontrolü
+                      const movTimer = exSession.movementTimers?.[mov.id];
+                      const hasTimer = !!movTimer;
+
                       // Hareket hedef özeti
                       const movTargetSummary = [
                         mov.defaultSets && `${mov.defaultSets} set`,
@@ -1255,38 +1679,93 @@ export const ActiveWorkoutView: React.FC<ActiveWorkoutProps> = ({ data, onSaveLo
                       ].filter(Boolean).join(' • ');
 
                       return (
-                        <div key={mIdx} className={`bg-white rounded-lg border overflow-hidden transition-all ${isMovExpanded ? 'border-emerald-300 ring-1 ring-emerald-100' : 'border-emerald-100'}`}>
+                        <div key={mIdx} className={`bg-white rounded-lg border overflow-hidden transition-all ${movTimer?.completed
+                          ? 'border-green-300 bg-green-50'
+                          : movTimer?.running
+                            ? 'border-amber-300 ring-2 ring-amber-100'
+                            : isMovExpanded
+                              ? 'border-emerald-300 ring-1 ring-emerald-100'
+                              : 'border-emerald-100'
+                          }`}>
                           {/* Hareket Header */}
-                          <div
-                            onClick={() => {
-                              setExpandedMovements(prev => {
-                                const next = new Set(prev);
-                                if (next.has(movKey)) next.delete(movKey);
-                                else next.add(movKey);
-                                return next;
-                              });
-                            }}
-                            className="p-2.5 cursor-pointer flex items-center justify-between hover:bg-emerald-50/50 transition-colors"
-                          >
-                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                          <div className="p-2.5 flex items-center justify-between">
+                            {/* Sol taraf - Tıklanabilir alan */}
+                            <div
+                              onClick={() => {
+                                setExpandedMovements(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(movKey)) next.delete(movKey);
+                                  else next.add(movKey);
+                                  return next;
+                                });
+                              }}
+                              className="flex items-center gap-1.5 flex-1 min-w-0 cursor-pointer hover:bg-emerald-50/50 transition-colors rounded p-1 -m-1"
+                            >
                               <div className={`p-0.5 rounded transition-transform duration-200 shrink-0 ${isMovExpanded ? 'rotate-90 bg-emerald-200' : 'bg-emerald-100'}`}>
                                 <ChevronRight size={12} className="text-emerald-600" />
                               </div>
                               {mov.media && <MediaButtons media={[mov.media]} compact />}
                               <div className="min-w-0">
-                                <span className="text-sm font-medium text-emerald-800">{mov.name}</span>
-                                {movTargetSummary && (
+                                <span className={`text-sm font-medium ${movTimer?.completed ? 'text-green-700' : 'text-emerald-800'}`}>
+                                  {mov.name}
+                                </span>
+                                {!hasTimer && movTargetSummary && (
                                   <span className="text-[9px] text-emerald-600 ml-1.5">• {movTargetSummary}</span>
                                 )}
                               </div>
                             </div>
-                            {/* Etki alanları mini */}
-                            <div className="flex gap-0.5 shrink-0">
-                              {(mov.effectAreas || []).slice(0, 2).map((areaKey: string) => {
-                                const area = EFFECT_AREAS.find(a => a.key === areaKey);
-                                return area ? <span key={areaKey} className="text-[10px]">{area.emoji}</span> : null;
-                              })}
-                            </div>
+
+                            {/* Sağ taraf - Timer kontrolü veya etki alanları */}
+                            {hasTimer ? (
+                              <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                                {/* Timer Gösterge */}
+                                <div className={`px-2 py-1 rounded-lg font-mono text-xs font-bold ${movTimer.completed
+                                  ? 'bg-green-500 text-white'
+                                  : movTimer.running
+                                    ? 'bg-amber-500 text-white animate-pulse'
+                                    : 'bg-amber-100 text-amber-700'
+                                  }`}>
+                                  {movTimer.completed ? (
+                                    <Check size={14} />
+                                  ) : (
+                                    `${Math.floor(movTimer.remaining / 60)}:${(movTimer.remaining % 60).toString().padStart(2, '0')}`
+                                  )}
+                                </div>
+
+                                {/* Kontrol Butonları */}
+                                {!movTimer.completed && (
+                                  <button
+                                    onClick={() => toggleMovementTimer(idx, mov.id)}
+                                    className={`p-1.5 rounded-lg transition-colors ${movTimer.running
+                                      ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
+                                      : 'text-green-600 bg-green-50 hover:bg-green-100'
+                                      }`}
+                                    title={movTimer.running ? 'Duraklat' : 'Başlat'}
+                                  >
+                                    {movTimer.running ? <Pause size={14} /> : <Play size={14} />}
+                                  </button>
+                                )}
+
+                                {/* Tamamla/Sıfırla */}
+                                <button
+                                  onClick={() => movTimer.completed ? resetMovementTimer(idx, mov.id) : completeMovement(idx, mov.id)}
+                                  className={`p-1.5 rounded-lg transition-colors ${movTimer.completed
+                                    ? 'text-slate-500 hover:text-amber-600 hover:bg-amber-50'
+                                    : 'text-green-600 hover:bg-green-50'
+                                    }`}
+                                  title={movTimer.completed ? 'Yeniden Başlat' : 'Tamamla'}
+                                >
+                                  {movTimer.completed ? <RotateCcw size={14} /> : <Check size={14} />}
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex gap-0.5 shrink-0">
+                                {(mov.effectAreas || []).slice(0, 2).map((areaKey: string) => {
+                                  const area = EFFECT_AREAS.find(a => a.key === areaKey);
+                                  return area ? <span key={areaKey} className="text-[10px]">{area.emoji}</span> : null;
+                                })}
+                              </div>
+                            )}
                           </div>
 
                           {/* Hareket Detayları */}
