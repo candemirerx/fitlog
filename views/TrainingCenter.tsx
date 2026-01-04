@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { AppData, Equipment, Exercise, Movement, MovementEffectArea, Routine, RoutineCategory, RoutineExercise } from '../types';
 import { Button } from '../components/Button';
-import { Plus, Trash2, Image as ImageIcon, Video, X, Camera, Clock, CheckSquare, Dumbbell, ChevronDown, ChevronUp, Target, Pencil, Package, Search, Check, Loader2, Move } from 'lucide-react';
+import { Plus, Trash2, Image as ImageIcon, Video, X, Camera, Clock, CheckSquare, Dumbbell, ChevronDown, ChevronUp, Target, Pencil, Package, Search, Check, Loader2, Move, GripVertical } from 'lucide-react';
 import { MediaButtons } from './ActiveWorkout';
 import { auth } from '../firebase';
 import { processAndUploadVideo, isVideoSource } from '../utils/videoUtils';
@@ -68,6 +68,10 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
   const [editingMovementId, setEditingMovementId] = useState<string | null>(null);
   const [movementOverrides, setMovementOverrides] = useState<Record<string, { description?: string; sets?: number | null; reps?: number | null; time?: number | null; weight?: number | null }>>({}); // Her hareket için özelleştirilmiş hedefler
 
+  // Hareket sıralaması için sürükle-bırak state'leri
+  const [draggingMovementIdx, setDraggingMovementIdx] = useState<number | null>(null);
+  const [dragOverMovementIdx, setDragOverMovementIdx] = useState<number | null>(null);
+
   // Exercise Selector State (For adding detailed exercises to routine)
   const [tempExerciseId, setTempExerciseId] = useState<string>('');
   const [tempTargetSets, setTempTargetSets] = useState<number>(3);
@@ -80,6 +84,9 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
   const [pickerSelectedIds, setPickerSelectedIds] = useState<string[]>([]);
   const [exerciseSearchQuery, setExerciseSearchQuery] = useState('');
   const [pickerTab, setPickerTab] = useState<'exercises' | 'movements'>('exercises');
+
+  // Antrenman içindeki genişletilmiş egzersizler (hareketleri göster/gizle)
+  const [expandedRoutineExercises, setExpandedRoutineExercises] = useState<string[]>([]);
 
   // Form error message
   const [formError, setFormError] = useState<string | null>(null);
@@ -323,6 +330,9 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
     setMovementSearchQuery('');
     setEditingMovementId(null);
     setMovementOverrides({});
+    setDraggingMovementIdx(null);
+    setDragOverMovementIdx(null);
+    setExpandedRoutineExercises([]);
     setSelectedEffectAreas([]);
     setFormError(null);
 
@@ -333,6 +343,17 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
     setNewItemDefaultWeight(undefined);
 
     setIsModalOpen(false);
+  };
+
+  // Hareket sıralamasını değiştir
+  const handleMovementReorder = (fromIdx: number, toIdx: number) => {
+    if (fromIdx === toIdx) return;
+    setSelectedMovementIds(prev => {
+      const newList = [...prev];
+      const [movedItem] = newList.splice(fromIdx, 1);
+      newList.splice(toIdx, 0, movedItem);
+      return newList;
+    });
   };
 
   const removeExerciseFromRoutine = (exId: string) => {
@@ -1438,8 +1459,54 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                           }
 
                           return (
-                            <div key={movId} className="bg-white p-2.5 rounded-lg border border-brand-200 flex items-center justify-between">
+                            <div
+                              key={movId}
+                              className={`bg-white p-2.5 rounded-lg border flex items-center justify-between transition-all ${draggingMovementIdx === idx
+                                ? 'opacity-50 border-brand-400 shadow-lg scale-[1.02]'
+                                : dragOverMovementIdx === idx
+                                  ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-200'
+                                  : 'border-brand-200'
+                                }`}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                if (draggingMovementIdx !== null && draggingMovementIdx !== idx) {
+                                  setDragOverMovementIdx(idx);
+                                }
+                              }}
+                              onDragLeave={() => {
+                                if (dragOverMovementIdx === idx) {
+                                  setDragOverMovementIdx(null);
+                                }
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                              }}
+                            >
                               <div className="flex items-center gap-2">
+                                {/* Sürükleme Tutamağı - Sadece buradan sürükleme yapılabilir */}
+                                <div
+                                  className="text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing touch-none p-1 -m-1 rounded hover:bg-slate-100 transition-colors"
+                                  draggable
+                                  onDragStart={(e) => {
+                                    setDraggingMovementIdx(idx);
+                                    e.dataTransfer.effectAllowed = 'move';
+                                    // Görsel olarak tüm satırı kopyala
+                                    const parent = (e.target as HTMLElement).closest('.bg-white');
+                                    if (parent) {
+                                      e.dataTransfer.setDragImage(parent, 20, 20);
+                                    }
+                                  }}
+                                  onDragEnd={() => {
+                                    if (draggingMovementIdx !== null && dragOverMovementIdx !== null) {
+                                      handleMovementReorder(draggingMovementIdx, dragOverMovementIdx);
+                                    }
+                                    setDraggingMovementIdx(null);
+                                    setDragOverMovementIdx(null);
+                                  }}
+                                  title="Basılı tutup sürükle"
+                                >
+                                  <GripVertical size={16} />
+                                </div>
                                 <span className="text-xs font-bold text-brand-600 bg-brand-100 rounded-full w-5 h-5 flex items-center justify-center">{idx + 1}</span>
                                 <div>
                                   <div className="flex items-center gap-1.5">
@@ -1479,7 +1546,14 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                             </div>
                           );
                         })}
-                        <p className="text-xs text-brand-600 font-medium">{selectedMovementIds.length} hareket seçildi</p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs text-brand-600 font-medium">{selectedMovementIds.length} hareket seçildi</p>
+                          {selectedMovementIds.length > 1 && (
+                            <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                              <GripVertical size={10} /> Sıralamak için sürükle
+                            </p>
+                          )}
+                        </div>
                       </div>
                     )}
 
@@ -1607,154 +1681,269 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Program İçeriği</label>
 
-                    {/* Selected Exercises List */}
+                    {/* Selected Exercises/Movements List */}
                     <div className="space-y-2 mb-3">
                       {selectedRoutineExercises.map((re, idx) => {
                         // Hareket mi egzersiz mi kontrol et
                         const isMovement = re.exerciseId.startsWith('mov_') || !!re.movementId;
                         const movId = re.movementId || re.exerciseId.replace('mov_', '');
-                        const def = isMovement
-                          ? (data.movements || []).find(m => m.id === movId)
-                          : data.exercises.find(e => e.id === re.exerciseId);
-                        const isEditingThisExercise = tempExerciseId === re.exerciseId;
 
-                        if (isEditingThisExercise) {
-                          // Düzenleme modu
+                        if (isMovement) {
+                          // Doğrudan hareket eklenmişse - düzenlenebilir
+                          const movDef = (data.movements || []).find(m => m.id === movId);
+                          const isEditingThisMovement = tempExerciseId === re.exerciseId;
+
+                          if (isEditingThisMovement) {
+                            // Hareket düzenleme modu
+                            return (
+                              <div key={idx} className="bg-emerald-100 p-3 rounded-lg border border-emerald-300 space-y-2">
+                                <div className="flex justify-between items-center">
+                                  <span className="font-bold text-emerald-800 text-sm flex items-center gap-1.5">
+                                    <Move size={14} className="text-emerald-600" />
+                                    {movDef?.name}
+                                  </span>
+                                  <button
+                                    onClick={() => setTempExerciseId('')}
+                                    className="text-slate-400 hover:text-slate-600 p-1"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="text-xs text-slate-500 block mb-1">Set</label>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={tempTargetSets}
+                                      onChange={e => setTempTargetSets(parseInt(e.target.value) || 1)}
+                                      className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="text-xs text-slate-500 block mb-1">Tekrar</label>
+                                    <input
+                                      type="number"
+                                      value={tempTargetReps || ''}
+                                      onChange={e => setTempTargetReps(parseInt(e.target.value) || 0)}
+                                      className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                      placeholder="Opsiyonel"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="text-xs text-slate-500 block mb-1">Ağırlık (kg)</label>
+                                    <input
+                                      type="number"
+                                      value={tempTargetWeight || ''}
+                                      onChange={e => setTempTargetWeight(e.target.value ? parseFloat(e.target.value) : undefined)}
+                                      className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                      placeholder="Opsiyonel"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="text-xs text-slate-500 block mb-1">Süre</label>
+                                    <div className="flex gap-1">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={Math.floor((tempTargetTime || 0) / 60) || ''}
+                                        onChange={e => {
+                                          const mins = parseInt(e.target.value) || 0;
+                                          const currentSecs = (tempTargetTime || 0) % 60;
+                                          setTempTargetTime(mins * 60 + currentSecs);
+                                        }}
+                                        className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                        placeholder="dk"
+                                      />
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="59"
+                                        value={(tempTargetTime || 0) % 60 || ''}
+                                        onChange={e => {
+                                          const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
+                                          const currentMins = Math.floor((tempTargetTime || 0) / 60);
+                                          setTempTargetTime(currentMins * 60 + secs);
+                                        }}
+                                        className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                        placeholder="sn"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <Button
+                                  size="sm"
+                                  fullWidth
+                                  onClick={() => {
+                                    setSelectedRoutineExercises(prev => prev.map(item =>
+                                      item.exerciseId === re.exerciseId
+                                        ? {
+                                          ...item,
+                                          targetSets: tempTargetSets,
+                                          targetReps: tempTargetReps || undefined,
+                                          targetTimeSeconds: tempTargetTime || undefined,
+                                          targetWeight: tempTargetWeight
+                                        }
+                                        : item
+                                    ));
+                                    setTempExerciseId('');
+                                  }}
+                                >
+                                  Kaydet
+                                </Button>
+                              </div>
+                            );
+                          }
+
+                          // Hareket normal görünümü
                           return (
-                            <div key={idx} className="bg-slate-100 p-3 rounded-lg border border-slate-300 space-y-2">
-                              <div className="flex justify-between items-center">
-                                <span className="font-bold text-slate-800 text-sm">{def?.name}</span>
+                            <div key={idx} className="flex justify-between items-center p-2 rounded-lg border bg-emerald-50 border-emerald-100">
+                              <div className="text-sm">
+                                <div className="font-bold flex items-center gap-1.5 text-emerald-800">
+                                  <Move size={12} className="text-emerald-600" />
+                                  {movDef?.name}
+                                  {movDef?.media && (
+                                    <div onClick={(e) => e.stopPropagation()}>
+                                      <MediaButtons media={[movDef.media]} compact />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="text-xs text-emerald-600">
+                                  {[re.targetSets && `${re.targetSets} set`, re.targetReps && `${re.targetReps} tekrar`, re.targetWeight && `${re.targetWeight}kg`, re.targetTimeSeconds && `${Math.floor(re.targetTimeSeconds / 60) > 0 ? `${Math.floor(re.targetTimeSeconds / 60)}dk ` : ''}${re.targetTimeSeconds % 60 > 0 ? `${re.targetTimeSeconds % 60}sn` : ''}`].filter(Boolean).join(' • ') || 'Hedef yok'}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1">
                                 <button
-                                  onClick={() => setTempExerciseId('')}
-                                  className="text-slate-400 hover:text-slate-600 p-1"
+                                  onClick={() => {
+                                    setTempExerciseId(re.exerciseId);
+                                    setTempTargetSets(re.targetSets || movDef?.defaultSets || 3);
+                                    setTempTargetReps(re.targetReps || movDef?.defaultReps || 10);
+                                    setTempTargetTime(re.targetTimeSeconds || movDef?.defaultTimeSeconds || 0);
+                                    setTempTargetWeight(re.targetWeight || movDef?.defaultWeight);
+                                  }}
+                                  className="text-emerald-400 p-1 hover:text-emerald-600"
+                                  title="Hedefleri Düzenle"
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                                <button onClick={() => removeExerciseFromRoutine(re.exerciseId)} className="text-red-400 p-1 hover:text-red-600" title="Sil">
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        } else {
+                          // Egzersiz eklenmişse - toggle list ile hareketlerini göster
+                          const exDef = data.exercises.find(e => e.id === re.exerciseId);
+                          const exerciseMovements = exDef?.movementIds
+                            ? exDef.movementIds.map(mId => (data.movements || []).find(m => m.id === mId)).filter(Boolean) as Movement[]
+                            : exDef?.movementId
+                              ? [(data.movements || []).find(m => m.id === exDef.movementId)].filter(Boolean) as Movement[]
+                              : [];
+
+                          // Egzersizin medyası veya ilk hareketin medyası
+                          const displayMedia = exDef?.media || exerciseMovements[0]?.media;
+                          const isExpanded = expandedRoutineExercises.includes(re.exerciseId);
+
+                          return (
+                            <div key={idx} className="rounded-xl border bg-gradient-to-br from-brand-50 to-white border-brand-200 overflow-hidden shadow-sm">
+                              {/* Egzersiz Başlığı - Tıklanabilir */}
+                              <div
+                                className="flex justify-between items-center p-3 cursor-pointer hover:bg-brand-100/50 transition-colors"
+                                onClick={() => {
+                                  if (exerciseMovements.length > 0) {
+                                    setExpandedRoutineExercises(prev =>
+                                      prev.includes(re.exerciseId)
+                                        ? prev.filter(id => id !== re.exerciseId)
+                                        : [...prev, re.exerciseId]
+                                    );
+                                  }
+                                }}
+                              >
+                                <div className="flex items-center gap-2">
+                                  {exerciseMovements.length > 0 && (
+                                    <div className={`text-brand-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                                      <ChevronDown size={16} />
+                                    </div>
+                                  )}
+                                  <div>
+                                    <div className="font-bold flex items-center gap-1.5 text-brand-800 text-sm">
+                                      <Dumbbell size={12} className="text-brand-600" />
+                                      {exDef?.name}
+                                      {displayMedia && (
+                                        <div onClick={(e) => e.stopPropagation()}>
+                                          <MediaButtons media={[displayMedia]} compact />
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="text-[10px] text-brand-600 mt-0.5">
+                                      {exerciseMovements.length > 0
+                                        ? `${exerciseMovements.length} hareket`
+                                        : 'Hareket eklenmemiş'}
+                                    </div>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeExerciseFromRoutine(re.exerciseId);
+                                  }}
+                                  className="text-red-400 p-1.5 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Sil"
                                 >
                                   <X size={14} />
                                 </button>
                               </div>
 
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <label className="text-xs text-slate-500 block mb-1">Set</label>
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    value={tempTargetSets}
-                                    onChange={e => setTempTargetSets(parseInt(e.target.value) || 1)}
-                                    className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
-                                  />
-                                </div>
+                              {/* Egzersizin Hareketleri - Toggle */}
+                              {isExpanded && exerciseMovements.length > 0 && (
+                                <div className="border-t border-brand-200 bg-white/80 divide-y divide-brand-100">
+                                  {exerciseMovements.map((mov, mIdx) => {
+                                    // Egzersiz override varsa onu kullan
+                                    const override = exDef?.movementOverrides?.[mov.id] || {};
+                                    const sets = override.sets === null ? undefined : (override.sets ?? mov.defaultSets);
+                                    const reps = override.reps === null ? undefined : (override.reps ?? mov.defaultReps);
+                                    const weight = override.weight === null ? undefined : (override.weight ?? mov.defaultWeight);
+                                    const time = override.time === null ? undefined : (override.time ?? mov.defaultTimeSeconds);
+                                    const desc = override.description ?? mov.description;
+                                    const targetText = [sets && `${sets} set`, reps && `${reps} tekrar`, weight && `${weight}kg`, time && `${Math.floor(time / 60) > 0 ? `${Math.floor(time / 60)}dk ` : ''}${time % 60 > 0 ? `${time % 60}sn` : ''}`].filter(Boolean).join(' • ');
 
-                                <div>
-                                  <label className="text-xs text-slate-500 block mb-1">Tekrar</label>
-                                  <input
-                                    type="number"
-                                    value={tempTargetReps || ''}
-                                    onChange={e => setTempTargetReps(parseInt(e.target.value) || 0)}
-                                    className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
-                                    placeholder="Opsiyonel"
-                                  />
+                                    return (
+                                      <div key={mIdx} className="px-3 py-2 flex items-center justify-between hover:bg-brand-50/50 transition-colors">
+                                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                                          <div className="w-5 h-5 rounded-full bg-brand-100 flex items-center justify-center shrink-0">
+                                            <Move size={10} className="text-brand-600" />
+                                          </div>
+                                          <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-1.5">
+                                              <span className="font-medium text-sm text-slate-800 truncate">{mov.name}</span>
+                                              {mov.media && (
+                                                <div onClick={(e) => e.stopPropagation()}>
+                                                  <MediaButtons media={[mov.media]} compact />
+                                                </div>
+                                              )}
+                                            </div>
+                                            {targetText && (
+                                              <span className="text-[10px] text-slate-500 block">{targetText}</span>
+                                            )}
+                                            {desc && (
+                                              <span className="text-[10px] text-slate-400 italic block truncate">{desc}</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
-
-                                <div>
-                                  <label className="text-xs text-slate-500 block mb-1">Ağırlık (kg)</label>
-                                  <input
-                                    type="number"
-                                    value={tempTargetWeight || ''}
-                                    onChange={e => setTempTargetWeight(e.target.value ? parseFloat(e.target.value) : undefined)}
-                                    className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
-                                    placeholder="Opsiyonel"
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="text-xs text-slate-500 block mb-1">Süre</label>
-                                  <div className="flex gap-1">
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      value={Math.floor((tempTargetTime || 0) / 60) || ''}
-                                      onChange={e => {
-                                        const mins = parseInt(e.target.value) || 0;
-                                        const currentSecs = (tempTargetTime || 0) % 60;
-                                        setTempTargetTime(mins * 60 + currentSecs);
-                                      }}
-                                      className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
-                                      placeholder="dk"
-                                    />
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      max="59"
-                                      value={(tempTargetTime || 0) % 60 || ''}
-                                      onChange={e => {
-                                        const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
-                                        const currentMins = Math.floor((tempTargetTime || 0) / 60);
-                                        setTempTargetTime(currentMins * 60 + secs);
-                                      }}
-                                      className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
-                                      placeholder="sn"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-
-                              <Button
-                                size="sm"
-                                fullWidth
-                                onClick={() => {
-                                  // Güncelle - tüm değerler opsiyonel olarak kaydedilir
-                                  setSelectedRoutineExercises(prev => prev.map(item =>
-                                    item.exerciseId === re.exerciseId
-                                      ? {
-                                        ...item,
-                                        targetSets: tempTargetSets,
-                                        targetReps: tempTargetReps || undefined,
-                                        targetTimeSeconds: tempTargetTime || undefined,
-                                        targetWeight: tempTargetWeight
-                                      }
-                                      : item
-                                  ));
-                                  setTempExerciseId('');
-                                }}
-                              >
-                                Kaydet
-                              </Button>
+                              )}
                             </div>
                           );
                         }
-
-                        return (
-                          <div key={idx} className={`flex justify-between items-center p-2 rounded-lg border ${isMovement ? 'bg-emerald-50 border-emerald-100' : 'bg-brand-50 border-brand-100'}`}>
-                            <div className="text-sm">
-                              <div className={`font-bold flex items-center gap-1.5 ${isMovement ? 'text-emerald-800' : 'text-brand-800'}`}>
-                                {isMovement && <Move size={12} className="text-emerald-600" />}
-                                {def?.name}
-                              </div>
-                              <div className={`text-xs ${isMovement ? 'text-emerald-600' : 'text-brand-600'}`}>
-                                {[re.targetSets && `${re.targetSets} set`, re.targetReps && `${re.targetReps} tekrar`, re.targetWeight && `${re.targetWeight}kg`, re.targetTimeSeconds && `${re.targetTimeSeconds}sn`].filter(Boolean).join(' • ') || 'Hedef yok'}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => {
-                                  // Düzenleme moduna geç, mevcut değerleri yükle
-                                  setTempExerciseId(re.exerciseId);
-                                  setTempTargetSets(re.targetSets);
-                                  setTempTargetReps(re.targetReps || 10);
-                                  setTempTargetTime(re.targetTimeSeconds || 60);
-                                  setTempTargetWeight(re.targetWeight);
-                                }}
-                                className="text-brand-400 p-1 hover:text-brand-600"
-                                title="Düzenle"
-                              >
-                                <Pencil size={14} />
-                              </button>
-                              <button onClick={() => removeExerciseFromRoutine(re.exerciseId)} className="text-red-400 p-1 hover:text-red-600" title="Sil">
-                                <X size={14} />
-                              </button>
-                            </div>
-                          </div>
-                        )
                       })}
                     </div>
 
@@ -1873,6 +2062,16 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                       .filter(ex => exerciseSearchQuery === '' || ex.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()))
                       .map(exercise => {
                         const isSelected = pickerSelectedIds.includes(exercise.id);
+                        // Egzersizin hareket sayısını hesapla
+                        const movementCount = exercise.movementIds?.length || (exercise.movementId ? 1 : 0);
+                        // İlk hareketin medyasını al (egzersizin kendi medyası yoksa)
+                        const firstMovement = exercise.movementIds?.[0]
+                          ? (data.movements || []).find(m => m.id === exercise.movementIds![0])
+                          : exercise.movementId
+                            ? (data.movements || []).find(m => m.id === exercise.movementId)
+                            : null;
+                        const displayMedia = exercise.media || firstMovement?.media;
+
                         return (
                           <button
                             key={exercise.id}
@@ -1897,17 +2096,16 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                               <h3 className={`font-bold text-sm ${isSelected ? 'text-brand-800' : 'text-slate-800'}`}>
                                 {exercise.name}
                               </h3>
-                              {exercise.media && (
+                              {displayMedia && (
                                 <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-                                  <MediaButtons media={[exercise.media]} compact />
+                                  <MediaButtons media={[displayMedia]} compact />
                                 </div>
                               )}
                             </div>
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {exercise.defaultSets && <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">{exercise.defaultSets} set</span>}
-                              {exercise.defaultReps && <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">{exercise.defaultReps} tekrar</span>}
-                              {exercise.defaultWeight && <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">{exercise.defaultWeight}kg</span>}
-                              {exercise.defaultTimeSeconds && <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">{Math.floor(exercise.defaultTimeSeconds / 60) > 0 ? `${Math.floor(exercise.defaultTimeSeconds / 60)}dk ` : ''}{exercise.defaultTimeSeconds % 60 > 0 ? `${exercise.defaultTimeSeconds % 60}sn` : ''}</span>}
+                            <div className="text-xs text-slate-500">
+                              {movementCount > 0
+                                ? `${movementCount} hareket`
+                                : 'Hareket eklenmemiş'}
                             </div>
                           </button>
                         );
