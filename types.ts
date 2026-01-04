@@ -45,6 +45,15 @@ export interface Exercise {
   movementId?: string; // geriye dönük uyumluluk için
   movementIds?: string[]; // Birden fazla hareket desteği
 
+  // Her hareket için özelleştirilmiş hedefler
+  movementOverrides?: Record<string, {
+    description?: string;
+    sets?: number | null; // null = silindi (varsayılan kullanılmayacak)
+    reps?: number | null;
+    time?: number | null;
+    weight?: number | null;
+  }>;
+
   // Default targets for Free Workout auto-population (eski sistem - geriye dönük uyumluluk)
   defaultSets?: number;
   defaultReps?: number;

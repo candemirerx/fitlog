@@ -64,6 +64,10 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
   const [isMovementPickerOpen, setIsMovementPickerOpen] = useState(false);
   const [movementSearchQuery, setMovementSearchQuery] = useState('');
 
+  // Hareket hedeflerini özelleştirmek için (egzersiz oluştururken)
+  const [editingMovementId, setEditingMovementId] = useState<string | null>(null);
+  const [movementOverrides, setMovementOverrides] = useState<Record<string, { description?: string; sets?: number | null; reps?: number | null; time?: number | null; weight?: number | null }>>({}); // Her hareket için özelleştirilmiş hedefler
+
   // Exercise Selector State (For adding detailed exercises to routine)
   const [tempExerciseId, setTempExerciseId] = useState<string>('');
   const [tempTargetSets, setTempTargetSets] = useState<number>(3);
@@ -116,6 +120,13 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
     const file = e.target.files?.[0];
     if (file) {
       try {
+        // Görsel yüklendiğinde dosya adını hareket ismi olarak doldur (sadece movements sekmesinde ve isim boşsa)
+        if (activeTab === 'movements' && !newItemName.trim()) {
+          // Dosya adından uzantıyı kaldır
+          const fileNameWithoutExtension = file.name.replace(/\.[^/.]+$/, '');
+          setNewItemName(fileNameWithoutExtension);
+        }
+
         if (file.type.startsWith('image/')) {
           const compressedImage = await resizeImage(file);
           setNewItemMedia(compressedImage);
@@ -169,12 +180,6 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
       }
 
     } else if (activeTab === 'movements') {
-      // En az bir etki alanı seçilmeli
-      if (selectedEffectAreas.length === 0) {
-        setFormError("Lütfen en az bir etki alanı seçiniz.");
-        return;
-      }
-
       const newMovement: Movement = {
         id,
         name: newItemName,
@@ -206,8 +211,16 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
         .map(id => (data.movements || []).find(m => m.id === id))
         .filter(Boolean) as Movement[];
 
-      // İlk hareketten varsayılan değerler al
+      // İlk hareketten varsayılan değerler al (override varsa onu kullan, null ise sil)
       const firstMovement = selectedMovements[0];
+      const firstMovementOverride = movementOverrides[firstMovement?.id] || {};
+
+      // null = silindi demek, undefined = varsayılan kullan, sayı = override kullan
+      const getEffectiveValue = (overrideVal: number | null | undefined, defaultVal: number | undefined) => {
+        if (overrideVal === null) return undefined; // Silindi
+        if (overrideVal !== undefined) return overrideVal; // Override var
+        return defaultVal; // Varsayılan
+      };
 
       // Tüm hareketlerin ekipmanlarını birleştir
       const allEquipmentIds = [...new Set(selectedMovements.flatMap(m => m.equipmentIds || []))];
@@ -215,16 +228,18 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
       const newExercise: Exercise = {
         id,
         name: newItemName || selectedMovements.map(m => m.name).join(' + ') || 'Egzersiz',
-        description: newItemDesc,
+        description: newItemDesc || firstMovementOverride.description || firstMovement?.description,
         equipmentIds: allEquipmentIds,
         media: newItemMedia || undefined, // Egzersizin kendi fotoğrafı (ilk hareketin fotoğrafı değil)
         movementId: firstMovement?.id, // geriye dönük uyumluluk
         movementIds: selectedMovementIds,
-        // İlk hareketten gelen varsayılan değerler
-        defaultSets: firstMovement?.defaultSets,
-        defaultReps: firstMovement?.defaultReps,
-        defaultTimeSeconds: firstMovement?.defaultTimeSeconds,
-        defaultWeight: firstMovement?.defaultWeight
+        // İlk hareketten gelen varsayılan değerler (override varsa onu kullan, null ise sil)
+        defaultSets: getEffectiveValue(firstMovementOverride.sets, firstMovement?.defaultSets),
+        defaultReps: getEffectiveValue(firstMovementOverride.reps, firstMovement?.defaultReps),
+        defaultTimeSeconds: getEffectiveValue(firstMovementOverride.time, firstMovement?.defaultTimeSeconds),
+        defaultWeight: getEffectiveValue(firstMovementOverride.weight, firstMovement?.defaultWeight),
+        // Her hareket için özelleştirilmiş hedefleri kaydet
+        movementOverrides: Object.keys(movementOverrides).length > 0 ? movementOverrides : undefined
       };
 
       if (editingId) {
@@ -276,6 +291,8 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
       // Çoklu hareket desteği - önce movementIds'e bak, yoksa movementId kullan
       const ids = ex.movementIds || (ex.movementId ? [ex.movementId] : []);
       setSelectedMovementIds(ids);
+      // Özelleştirilmiş hedefleri yükle
+      setMovementOverrides(ex.movementOverrides || {});
     }
     else if (activeTab === 'routines') {
       const rt = item as Routine;
@@ -304,6 +321,8 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
     setTempExerciseId('');
     setSelectedMovementIds([]);
     setMovementSearchQuery('');
+    setEditingMovementId(null);
+    setMovementOverrides({});
     setSelectedEffectAreas([]);
     setFormError(null);
 
@@ -1238,6 +1257,186 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                         {selectedMovementIds.map((movId, idx) => {
                           const mov = (data.movements || []).find(m => m.id === movId);
                           if (!mov) return null;
+                          const isEditing = editingMovementId === movId;
+                          const override = movementOverrides[movId] || {};
+
+                          // Gösterilecek değerler (null = silindi, undefined = varsayılanı kullan)
+                          const displaySets = override.sets === null ? undefined : (override.sets ?? mov.defaultSets);
+                          const displayReps = override.reps === null ? undefined : (override.reps ?? mov.defaultReps);
+                          const displayWeight = override.weight === null ? undefined : (override.weight ?? mov.defaultWeight);
+                          const displayTime = override.time === null ? undefined : (override.time ?? mov.defaultTimeSeconds);
+                          const displayDesc = override.description ?? mov.description;
+
+                          if (isEditing) {
+                            // Düzenleme modu
+                            // Gösterilecek değerler - null ise silindi demek, undefined ise varsayılan kullanılır
+                            const getDisplayValue = (overrideVal: number | null | undefined, defaultVal: number | undefined) => {
+                              if (overrideVal === null) return ''; // Silindi
+                              if (overrideVal !== undefined) return overrideVal;
+                              return defaultVal ?? '';
+                            };
+
+                            return (
+                              <div key={movId} className="bg-slate-100 p-3 rounded-lg border border-slate-300 space-y-3">
+                                <div className="flex justify-between items-center">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-brand-600 bg-brand-100 rounded-full w-5 h-5 flex items-center justify-center">{idx + 1}</span>
+                                    <span className="font-bold text-slate-800 text-sm">{mov.name}</span>
+                                  </div>
+                                  <button
+                                    onClick={() => setEditingMovementId(null)}
+                                    className="text-slate-400 hover:text-slate-600 p-1"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+
+                                {/* Açıklama */}
+                                <div>
+                                  <label className="text-xs text-slate-500 block mb-1">Açıklama</label>
+                                  <textarea
+                                    value={override.description ?? mov.description ?? ''}
+                                    onChange={e => setMovementOverrides(prev => ({
+                                      ...prev,
+                                      [movId]: { ...prev[movId], description: e.target.value || undefined }
+                                    }))}
+                                    className="w-full p-2 border border-slate-200 rounded bg-white text-sm resize-none"
+                                    rows={2}
+                                    placeholder="Egzersiz için özel not ekleyin..."
+                                  />
+                                  {mov.description && override.description === undefined && (
+                                    <p className="text-[10px] text-slate-400 mt-1 italic">Varsayılan: {mov.description.slice(0, 50)}{mov.description.length > 50 ? '...' : ''}</p>
+                                  )}
+                                </div>
+
+                                <p className="text-[10px] text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-200">
+                                  💡 Alanı boş bırakırsanız varsayılan değer silinir. Bu değişiklikler sadece bu egzersiz için geçerlidir.
+                                </p>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="text-xs text-slate-500 block mb-1">
+                                      Set {mov.defaultSets && override.sets === undefined && <span className="text-slate-400">(Vars: {mov.defaultSets})</span>}
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={getDisplayValue(override.sets, mov.defaultSets)}
+                                      onChange={e => setMovementOverrides(prev => ({
+                                        ...prev,
+                                        [movId]: { ...prev[movId], sets: e.target.value ? parseInt(e.target.value) : null }
+                                      }))}
+                                      className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                      placeholder="Boş = Yok"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="text-xs text-slate-500 block mb-1">
+                                      Tekrar {mov.defaultReps && override.reps === undefined && <span className="text-slate-400">(Vars: {mov.defaultReps})</span>}
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={getDisplayValue(override.reps, mov.defaultReps)}
+                                      onChange={e => setMovementOverrides(prev => ({
+                                        ...prev,
+                                        [movId]: { ...prev[movId], reps: e.target.value ? parseInt(e.target.value) : null }
+                                      }))}
+                                      className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                      placeholder="Boş = Yok"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="text-xs text-slate-500 block mb-1">
+                                      Ağırlık (kg) {mov.defaultWeight && override.weight === undefined && <span className="text-slate-400">(Vars: {mov.defaultWeight})</span>}
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.5"
+                                      value={getDisplayValue(override.weight, mov.defaultWeight)}
+                                      onChange={e => setMovementOverrides(prev => ({
+                                        ...prev,
+                                        [movId]: { ...prev[movId], weight: e.target.value ? parseFloat(e.target.value) : null }
+                                      }))}
+                                      className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                      placeholder="Boş = Yok"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="text-xs text-slate-500 block mb-1">
+                                      Süre {mov.defaultTimeSeconds && override.time === undefined && <span className="text-slate-400">(Vars: {Math.floor(mov.defaultTimeSeconds / 60)}dk {mov.defaultTimeSeconds % 60}sn)</span>}
+                                    </label>
+                                    <div className="flex gap-1">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={override.time === null ? '' : Math.floor(((override.time ?? mov.defaultTimeSeconds) || 0) / 60) || ''}
+                                        onChange={e => {
+                                          if (e.target.value === '' && !((override.time ?? mov.defaultTimeSeconds) || 0)) {
+                                            // Her iki alan da boşsa null yap
+                                            setMovementOverrides(prev => ({
+                                              ...prev,
+                                              [movId]: { ...prev[movId], time: null }
+                                            }));
+                                            return;
+                                          }
+                                          const mins = parseInt(e.target.value) || 0;
+                                          const currentTime = override.time === null ? 0 : (override.time ?? mov.defaultTimeSeconds ?? 0);
+                                          const currentSecs = currentTime % 60;
+                                          const newTime = mins * 60 + currentSecs;
+                                          setMovementOverrides(prev => ({
+                                            ...prev,
+                                            [movId]: { ...prev[movId], time: newTime || null }
+                                          }));
+                                        }}
+                                        className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                        placeholder="dk"
+                                      />
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="59"
+                                        value={override.time === null ? '' : ((override.time ?? mov.defaultTimeSeconds) || 0) % 60 || ''}
+                                        onChange={e => {
+                                          if (e.target.value === '' && !Math.floor(((override.time ?? mov.defaultTimeSeconds) || 0) / 60)) {
+                                            // Her iki alan da boşsa null yap
+                                            setMovementOverrides(prev => ({
+                                              ...prev,
+                                              [movId]: { ...prev[movId], time: null }
+                                            }));
+                                            return;
+                                          }
+                                          const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
+                                          const currentTime = override.time === null ? 0 : (override.time ?? mov.defaultTimeSeconds ?? 0);
+                                          const currentMins = Math.floor(currentTime / 60);
+                                          const newTime = currentMins * 60 + secs;
+                                          setMovementOverrides(prev => ({
+                                            ...prev,
+                                            [movId]: { ...prev[movId], time: newTime || null }
+                                          }));
+                                        }}
+                                        className="w-full p-2 border border-slate-200 rounded bg-white text-sm"
+                                        placeholder="sn"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <Button
+                                  size="sm"
+                                  fullWidth
+                                  onClick={() => setEditingMovementId(null)}
+                                >
+                                  Tamam
+                                </Button>
+                              </div>
+                            );
+                          }
+
                           return (
                             <div key={movId} className="bg-white p-2.5 rounded-lg border border-brand-200 flex items-center justify-between">
                               <div className="flex items-center gap-2">
@@ -1248,17 +1447,35 @@ export const TrainingCenterView: React.FC<TrainingCenterProps> = ({ data, onUpda
                                     {mov.media && <MediaButtons media={[mov.media]} compact />}
                                   </div>
                                   <span className="text-[10px] text-slate-500">
-                                    {[mov.defaultSets && `${mov.defaultSets} set`, mov.defaultReps && `${mov.defaultReps} tekrar`, mov.defaultWeight && `${mov.defaultWeight}kg`].filter(Boolean).join(' • ') || 'Hedef yok'}
+                                    {[displaySets && `${displaySets} set`, displayReps && `${displayReps} tekrar`, displayWeight && `${displayWeight}kg`, displayTime && `${Math.floor(displayTime / 60) > 0 ? `${Math.floor(displayTime / 60)}dk ` : ''}${displayTime % 60 > 0 ? `${displayTime % 60}sn` : ''}`].filter(Boolean).join(' • ') || 'Hedef yok'}
+                                    {movementOverrides[movId] && <span className="text-brand-500 font-medium ml-1">(düzenlendi)</span>}
                                   </span>
                                 </div>
                               </div>
-                              <button
-                                onClick={() => setSelectedMovementIds(prev => prev.filter(id => id !== movId))}
-                                className="text-slate-400 hover:text-red-500 p-1"
-                                title="Kaldır"
-                              >
-                                <X size={14} />
-                              </button>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => setEditingMovementId(movId)}
+                                  className="text-brand-400 hover:text-brand-600 p-1"
+                                  title="Hedefleri Düzenle"
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedMovementIds(prev => prev.filter(id => id !== movId));
+                                    // Override'ı da temizle
+                                    setMovementOverrides(prev => {
+                                      const updated = { ...prev };
+                                      delete updated[movId];
+                                      return updated;
+                                    });
+                                  }}
+                                  className="text-slate-400 hover:text-red-500 p-1"
+                                  title="Kaldır"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
                             </div>
                           );
                         })}
